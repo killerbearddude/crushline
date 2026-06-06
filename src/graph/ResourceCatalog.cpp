@@ -1,3 +1,7 @@
+// Implements the hardcoded Tier 0 resource catalog used by recipes, graph ports,
+// and upcoming scenario objectives. The catalog is deliberately small while the
+// production puzzle loop is being proven.
+
 #include "graph/ResourceCatalog.h"
 
 namespace graph
@@ -6,6 +10,9 @@ namespace
 {
 std::vector<ResourceDef> BuildTier0Resources()
 {
+    // NOTE: Tier 0 data is hardcoded while the gameplay model is being proven.
+    // Later patches can move these definitions into external data files once the
+    // schema stabilizes.
     return {
         {
             production_ids::IronOre,
@@ -79,7 +86,7 @@ std::vector<ResourceDef> BuildTier0Resources()
         }
     };
 }
-}
+} // namespace
 
 ResourceCatalog::ResourceCatalog()
     : m_resources(BuildTier0Resources())
@@ -121,4 +128,4 @@ ResourceCatalog CreateTier0ResourceCatalog()
 {
     return ResourceCatalog();
 }
-}
+} // namespace graph

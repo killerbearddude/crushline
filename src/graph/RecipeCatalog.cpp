@@ -1,3 +1,7 @@
+// Implements the hardcoded Tier 0 recipe catalog used by the production puzzle
+// model. Recipes are the source of generated node ports and the input/output
+// rates that upcoming evaluator patches will resolve.
+
 #include "graph/RecipeCatalog.h"
 
 namespace graph
@@ -6,6 +10,9 @@ namespace
 {
 std::vector<RecipeDef> BuildTier0Recipes()
 {
+    // NOTE: Tier 0 data is hardcoded while the gameplay model is being proven.
+    // Later patches can move these definitions into external data files once the
+    // schema stabilizes.
     return {
         {
             production_ids::ExtractIronOre,
@@ -84,7 +91,20 @@ std::vector<RecipeDef> BuildTier0Recipes()
         }
     };
 }
+
+bool ContainsResource(const std::vector<ResourceAmount>& amounts, ResourceId resourceId)
+{
+    for (const ResourceAmount& amount : amounts)
+    {
+        if (amount.resourceId == resourceId)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
+} // namespace
 
 RecipeCatalog::RecipeCatalog()
     : m_recipes(BuildTier0Recipes())
@@ -139,45 +159,21 @@ std::vector<const RecipeDef*> RecipeCatalog::FindCompatibleRecipes(MachineClass 
 
 bool RecipeProducesResource(const RecipeDef& recipe, ResourceId resourceId)
 {
-    for (const ResourceAmount& output : recipe.outputs)
-    {
-        if (output.resourceId == resourceId)
-        {
-            return true;
-        }
-    }
-
-    return false;
+    return ContainsResource(recipe.outputs, resourceId);
 }
 
 bool RecipeConsumesResource(const RecipeDef& recipe, ResourceId resourceId)
 {
-    for (const ResourceAmount& input : recipe.inputs)
-    {
-        if (input.resourceId == resourceId)
-        {
-            return true;
-        }
-    }
-
-    return false;
+    return ContainsResource(recipe.inputs, resourceId);
 }
 
 bool RecipeCreatesByproduct(const RecipeDef& recipe, ResourceId resourceId)
 {
-    for (const ResourceAmount& byproduct : recipe.byproducts)
-    {
-        if (byproduct.resourceId == resourceId)
-        {
-            return true;
-        }
-    }
-
-    return false;
+    return ContainsResource(recipe.byproducts, resourceId);
 }
 
 RecipeCatalog CreateTier0RecipeCatalog()
 {
     return RecipeCatalog();
 }
-}
+} // namespace graph

@@ -1,10 +1,15 @@
+// Verifies the Tier 0 production catalogs that seed the first real gameplay
+// loop. These tests protect resource IDs, recipe rates, byproduct semantics, and
+// machine compatibility before graph nodes begin generating ports from recipes.
+
 #include "graph/MachineCatalog.h"
 #include "graph/RecipeCatalog.h"
 #include "graph/ResourceCatalog.h"
 
 #include <cmath>
 #include <iostream>
-#include <string>
+#include <string_view>
+#include <vector>
 
 namespace
 {
@@ -39,6 +44,36 @@ bool CheckNear(float actual, float expected, const char* message)
     return true;
 }
 
+const graph::ResourceDef* RequireResourceByKey(
+    const graph::ResourceCatalog& catalog,
+    std::string_view key
+)
+{
+    const graph::ResourceDef* resource = catalog.FindByKey(key);
+    Check(resource != nullptr, "Required resource key should exist");
+    return resource;
+}
+
+const graph::MachineDef* RequireMachineByKey(
+    const graph::MachineCatalog& catalog,
+    std::string_view key
+)
+{
+    const graph::MachineDef* machine = catalog.FindByKey(key);
+    Check(machine != nullptr, "Required machine key should exist");
+    return machine;
+}
+
+const graph::RecipeDef* RequireRecipeByKey(
+    const graph::RecipeCatalog& catalog,
+    std::string_view key
+)
+{
+    const graph::RecipeDef* recipe = catalog.FindByKey(key);
+    Check(recipe != nullptr, "Required recipe key should exist");
+    return recipe;
+}
+
 const graph::ResourceAmount* FindAmount(
     const std::vector<graph::ResourceAmount>& amounts,
     graph::ResourceId resourceId
@@ -55,29 +90,46 @@ const graph::ResourceAmount* FindAmount(
     return nullptr;
 }
 
+bool CheckAmount(
+    const std::vector<graph::ResourceAmount>& amounts,
+    graph::ResourceId resourceId,
+    float expectedRate,
+    const char* missingMessage,
+    const char* rateMessage
+)
+{
+    const graph::ResourceAmount* amount = FindAmount(amounts, resourceId);
+    return
+        Check(amount != nullptr, missingMessage) &&
+        CheckNear(amount->ratePerMinute, expectedRate, rateMessage);
+}
+
 bool CheckTier0Resources()
 {
+    // Verifies the starter resource set and its semantic tags. This prevents
+    // regressions where future recipe-node generation would create ports from
+    // missing or incorrectly classified resources.
     const graph::ResourceCatalog resources;
 
-    const graph::ResourceDef* ironOre = resources.FindByKey("iron_ore");
-    const graph::ResourceDef* water = resources.FindByKey("water");
-    const graph::ResourceDef* slurry = resources.FindByKey("iron_slurry");
-    const graph::ResourceDef* ingot = resources.FindByKey("iron_ingot");
+    const graph::ResourceDef* ironOre = RequireResourceByKey(resources, "iron_ore");
+    const graph::ResourceDef* water = RequireResourceByKey(resources, "water");
+    const graph::ResourceDef* slurry = RequireResourceByKey(resources, "iron_slurry");
+    const graph::ResourceDef* ingot = RequireResourceByKey(resources, "iron_ingot");
 
     return
         Check(resources.All().size() == 7, "Tier 0 should expose seven resources") &&
-        Check(ironOre != nullptr, "Iron Ore resource should be findable by key") &&
+        Check(ironOre != nullptr, "Iron Ore resource should be required by key") &&
         Check(ironOre->id == graph::production_ids::IronOre, "Iron Ore id mismatch") &&
         Check(ironOre->kind == graph::ResourceKind::Solid, "Iron Ore should be a solid") &&
         Check(ironOre->isRaw, "Iron Ore should be marked raw") &&
         Check(!ironOre->isWaste, "Iron Ore should not be waste") &&
-        Check(water != nullptr, "Water resource should be findable by key") &&
+        Check(water != nullptr, "Water resource should be required by key") &&
         Check(water->kind == graph::ResourceKind::Fluid, "Water should be a fluid") &&
         Check(water->isRaw, "Water should be marked raw") &&
-        Check(slurry != nullptr, "Iron Slurry resource should be findable by key") &&
+        Check(slurry != nullptr, "Iron Slurry resource should be required by key") &&
         Check(slurry->kind == graph::ResourceKind::Waste, "Iron Slurry should use waste kind") &&
         Check(slurry->isWaste, "Iron Slurry should be marked waste") &&
-        Check(ingot != nullptr, "Iron Ingot resource should be findable by key") &&
+        Check(ingot != nullptr, "Iron Ingot resource should be required by key") &&
         Check(ingot->isFinal, "Iron Ingot should be marked final") &&
         Check(resources.Find(graph::production_ids::WashedIronOre) != nullptr, "Washed Iron Ore id lookup should work") &&
         Check(resources.Find(99999) == nullptr, "Unknown resource lookup should return null");
@@ -85,22 +137,24 @@ bool CheckTier0Resources()
 
 bool CheckTier0Machines()
 {
+    // Verifies the initial machine classes and baseline costs. Recipe-driven
+    // graph nodes will use these classes to reject incompatible recipes.
     const graph::MachineCatalog machines;
 
-    const graph::MachineDef* crusher = machines.FindByKey("crusher");
-    const graph::MachineDef* washer = machines.FindByKey("washer");
-    const graph::MachineDef* smelter = machines.FindByKey("smelter");
+    const graph::MachineDef* crusher = RequireMachineByKey(machines, "crusher");
+    const graph::MachineDef* washer = RequireMachineByKey(machines, "washer");
+    const graph::MachineDef* smelter = RequireMachineByKey(machines, "smelter");
 
     return
         Check(machines.All().size() == 5, "Tier 0 should expose five machines") &&
-        Check(crusher != nullptr, "Crusher should be findable by key") &&
+        Check(crusher != nullptr, "Crusher should be required by key") &&
         Check(crusher->id == graph::production_ids::Crusher, "Crusher id mismatch") &&
         Check(crusher->machineClass == graph::MachineClass::Crushing, "Crusher class mismatch") &&
         CheckNear(crusher->basePowerKw, 60.0f, "Crusher base power mismatch") &&
-        Check(washer != nullptr, "Washer should be findable by key") &&
+        Check(washer != nullptr, "Washer should be required by key") &&
         Check(washer->machineClass == graph::MachineClass::Washing, "Washer class mismatch") &&
         CheckNear(washer->basePowerKw, 90.0f, "Washer base power mismatch") &&
-        Check(smelter != nullptr, "Smelter should be findable by key") &&
+        Check(smelter != nullptr, "Smelter should be required by key") &&
         Check(smelter->machineClass == graph::MachineClass::Smelting, "Smelter class mismatch") &&
         Check(machines.FindByClass(graph::MachineClass::Source) != nullptr, "Source class lookup should find Resource Source") &&
         Check(machines.FindByClass(graph::MachineClass::Chemical) == nullptr, "Locked Chemical class should not be present in Tier 0") &&
@@ -109,12 +163,15 @@ bool CheckTier0Machines()
 
 bool CheckTier0Recipes()
 {
+    // Verifies recipe inputs, outputs, byproducts, and rates. This prevents
+    // regressions where the puzzle chain could no longer produce the Tier 0
+    // objective or route its slurry byproduct.
     const graph::RecipeCatalog recipes;
 
-    const graph::RecipeDef* crush = recipes.FindByKey("crush_iron_ore");
-    const graph::RecipeDef* wash = recipes.FindByKey("wash_crushed_iron_ore");
-    const graph::RecipeDef* smelt = recipes.FindByKey("smelt_washed_iron_ore");
-    const graph::RecipeDef* store = recipes.FindByKey("store_iron_slurry");
+    const graph::RecipeDef* crush = RequireRecipeByKey(recipes, "crush_iron_ore");
+    const graph::RecipeDef* wash = RequireRecipeByKey(recipes, "wash_crushed_iron_ore");
+    const graph::RecipeDef* smelt = RequireRecipeByKey(recipes, "smelt_washed_iron_ore");
+    const graph::RecipeDef* store = RequireRecipeByKey(recipes, "store_iron_slurry");
 
     if (!Check(recipes.All().size() == 6, "Tier 0 should expose six recipes") ||
         !Check(crush != nullptr, "Crush Iron Ore recipe should exist") ||
@@ -125,40 +182,19 @@ bool CheckTier0Recipes()
         return false;
     }
 
-    const graph::ResourceAmount* crushInput = FindAmount(crush->inputs, graph::production_ids::IronOre);
-    const graph::ResourceAmount* crushOutput = FindAmount(crush->outputs, graph::production_ids::CrushedIronOre);
-
-    const graph::ResourceAmount* washOreInput = FindAmount(wash->inputs, graph::production_ids::CrushedIronOre);
-    const graph::ResourceAmount* washWaterInput = FindAmount(wash->inputs, graph::production_ids::Water);
-    const graph::ResourceAmount* washOutput = FindAmount(wash->outputs, graph::production_ids::WashedIronOre);
-    const graph::ResourceAmount* washByproduct = FindAmount(wash->byproducts, graph::production_ids::IronSlurry);
-
-    const graph::ResourceAmount* smeltInput = FindAmount(smelt->inputs, graph::production_ids::WashedIronOre);
-    const graph::ResourceAmount* smeltOutput = FindAmount(smelt->outputs, graph::production_ids::IronIngot);
-
-    const graph::ResourceAmount* storeInput = FindAmount(store->inputs, graph::production_ids::IronSlurry);
-    const graph::ResourceAmount* storeOutput = FindAmount(store->outputs, graph::production_ids::Waste);
-
     return
         Check(crush->requiredMachineClass == graph::MachineClass::Crushing, "Crush recipe should require crushing") &&
-        Check(crushInput != nullptr, "Crush recipe should consume Iron Ore") &&
-        CheckNear(crushInput->ratePerMinute, 60.0f, "Crush Iron Ore input rate mismatch") &&
-        Check(crushOutput != nullptr, "Crush recipe should produce Crushed Iron Ore") &&
-        CheckNear(crushOutput->ratePerMinute, 60.0f, "Crush Iron Ore output rate mismatch") &&
+        CheckAmount(crush->inputs, graph::production_ids::IronOre, 60.0f, "Crush recipe should consume Iron Ore", "Crush Iron Ore input rate mismatch") &&
+        CheckAmount(crush->outputs, graph::production_ids::CrushedIronOre, 60.0f, "Crush recipe should produce Crushed Iron Ore", "Crush Iron Ore output rate mismatch") &&
         Check(wash->requiredMachineClass == graph::MachineClass::Washing, "Wash recipe should require washing") &&
-        Check(washOreInput != nullptr, "Wash recipe should consume Crushed Iron Ore") &&
-        CheckNear(washOreInput->ratePerMinute, 60.0f, "Wash ore input rate mismatch") &&
-        Check(washWaterInput != nullptr, "Wash recipe should consume Water") &&
-        CheckNear(washWaterInput->ratePerMinute, 30.0f, "Wash water input rate mismatch") &&
-        Check(washOutput != nullptr, "Wash recipe should produce Washed Iron Ore") &&
-        CheckNear(washOutput->ratePerMinute, 50.0f, "Wash output rate mismatch") &&
-        Check(washByproduct != nullptr, "Wash recipe should create Iron Slurry byproduct") &&
-        CheckNear(washByproduct->ratePerMinute, 10.0f, "Wash byproduct rate mismatch") &&
-        Check(smeltInput != nullptr, "Smelt recipe should consume Washed Iron Ore") &&
-        Check(smeltOutput != nullptr, "Smelt recipe should produce Iron Ingot") &&
-        CheckNear(smeltOutput->ratePerMinute, 50.0f, "Smelt output rate mismatch") &&
-        Check(storeInput != nullptr, "Store recipe should consume Iron Slurry") &&
-        Check(storeOutput != nullptr, "Store recipe should output Waste") &&
+        CheckAmount(wash->inputs, graph::production_ids::CrushedIronOre, 60.0f, "Wash recipe should consume Crushed Iron Ore", "Wash ore input rate mismatch") &&
+        CheckAmount(wash->inputs, graph::production_ids::Water, 30.0f, "Wash recipe should consume Water", "Wash water input rate mismatch") &&
+        CheckAmount(wash->outputs, graph::production_ids::WashedIronOre, 50.0f, "Wash recipe should produce Washed Iron Ore", "Wash output rate mismatch") &&
+        CheckAmount(wash->byproducts, graph::production_ids::IronSlurry, 10.0f, "Wash recipe should create Iron Slurry byproduct", "Wash byproduct rate mismatch") &&
+        CheckAmount(smelt->inputs, graph::production_ids::WashedIronOre, 50.0f, "Smelt recipe should consume Washed Iron Ore", "Smelt input rate mismatch") &&
+        CheckAmount(smelt->outputs, graph::production_ids::IronIngot, 50.0f, "Smelt recipe should produce Iron Ingot", "Smelt output rate mismatch") &&
+        CheckAmount(store->inputs, graph::production_ids::IronSlurry, 10.0f, "Store recipe should consume Iron Slurry", "Store input rate mismatch") &&
+        CheckAmount(store->outputs, graph::production_ids::Waste, 10.0f, "Store recipe should output Waste", "Store output rate mismatch") &&
         Check(graph::RecipeConsumesResource(*wash, graph::production_ids::Water), "RecipeConsumesResource should detect water input") &&
         Check(graph::RecipeProducesResource(*smelt, graph::production_ids::IronIngot), "RecipeProducesResource should detect ingot output") &&
         Check(graph::RecipeCreatesByproduct(*wash, graph::production_ids::IronSlurry), "RecipeCreatesByproduct should detect slurry byproduct") &&
@@ -167,6 +203,9 @@ bool CheckTier0Recipes()
 
 bool CheckRecipeMachineCompatibility()
 {
+    // Verifies that compatible-recipe lookup stays class-based rather than key-
+    // or name-based. This protects future machine nodes from accepting recipes
+    // that do not belong to their machine class.
     const graph::RecipeCatalog recipes;
 
     const std::vector<const graph::RecipeDef*> sourceRecipes = recipes.FindCompatibleRecipes(graph::MachineClass::Source);
@@ -182,6 +221,9 @@ bool CheckRecipeMachineCompatibility()
 
 bool CheckCatalogIntegrity()
 {
+    // Verifies cross-catalog integrity so every recipe references real resources
+    // with positive rates. This catches data-entry mistakes before they become
+    // graph evaluation or generated-port bugs.
     const graph::ResourceCatalog resources;
     const graph::RecipeCatalog recipes;
 
@@ -225,7 +267,7 @@ bool CheckCatalogIntegrity()
 
     return true;
 }
-}
+} // namespace
 
 int RunProductionCatalogTest()
 {

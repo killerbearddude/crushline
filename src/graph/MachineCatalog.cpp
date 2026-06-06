@@ -1,3 +1,7 @@
+// Implements the hardcoded Tier 0 machine catalog used by recipe compatibility
+// checks and future node creation. Machine definitions describe capabilities;
+// recipes describe concrete input/output transformations.
+
 #include "graph/MachineCatalog.h"
 
 namespace graph
@@ -6,6 +10,9 @@ namespace
 {
 std::vector<MachineDef> BuildTier0Machines()
 {
+    // NOTE: Tier 0 data is hardcoded while the gameplay model is being proven.
+    // Later patches can move these definitions into external data files once the
+    // schema stabilizes.
     return {
         {
             production_ids::ResourceSource,
@@ -54,7 +61,7 @@ std::vector<MachineDef> BuildTier0Machines()
         }
     };
 }
-}
+} // namespace
 
 MachineCatalog::MachineCatalog()
     : m_machines(BuildTier0Machines())
@@ -109,4 +116,4 @@ MachineCatalog CreateTier0MachineCatalog()
 {
     return MachineCatalog();
 }
-}
+} // namespace graph
