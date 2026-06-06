@@ -609,6 +609,22 @@ void App::AddEvent(std::string message)
     }
 }
 
+void App::MarkGraphDirty()
+{
+    m_graphDirty = true;
+}
+
+void App::EvaluateGraphIfDirty()
+{
+    if (!m_graphDirty)
+    {
+        return;
+    }
+
+    m_simulationResult = graph::EvaluateGraph(m_graph);
+    m_graphDirty = false;
+}
+
 void App::UpdateEventLogFromSimulation()
 {
     const bool firstUpdate = !m_eventLogPrimed;
@@ -683,7 +699,8 @@ bool App::Initialize(const AppConfig& config)
 
     m_graph = graph::CreateSampleFactoryGraph();
     m_graphView = editor::CreateSampleFactoryGraphView(m_graph);
-    m_simulationResult = graph::EvaluateGraph(m_graph);
+    MarkGraphDirty();
+    EvaluateGraphIfDirty();
     UpdateEventLogFromSimulation();
 
     m_lastTimeSeconds = GetSeconds();
@@ -722,6 +739,7 @@ void App::RunFrame()
     {
         m_graph = graph::CreateSampleFactoryGraph();
         m_graphView = editor::CreateSampleFactoryGraphView(m_graph);
+        MarkGraphDirty();
         AddEvent("Sample graph reset");
         std::cout << "Sample factory graph reset.\n";
     }
@@ -746,7 +764,7 @@ void App::RunFrame()
         std::string errorMessage;
         if (graph::LoadGraphFromFile(m_graph, m_graphView, CurrentGraphPath, &errorMessage))
         {
-            m_simulationResult = graph::EvaluateGraph(m_graph);
+            MarkGraphDirty();
             AddEvent("Graph loaded");
             std::cout << "Graph loaded from " << CurrentGraphPath << ".\n";
         }
@@ -764,8 +782,12 @@ void App::RunFrame()
     );
 
     editor::EnsureNodeVisuals(m_graphView, m_graph);
-    editor::UpdateGraphViewInteraction(m_graphView, m_graph, m_input, regions.graphCanvas);
-    m_simulationResult = graph::EvaluateGraph(m_graph);
+    if (editor::UpdateGraphViewInteraction(m_graphView, m_graph, m_input, regions.graphCanvas))
+    {
+        MarkGraphDirty();
+    }
+
+    EvaluateGraphIfDirty();
     UpdateEventLogFromSimulation();
 
     m_renderer.BeginFrame(m_window.Width(), m_window.Height(), m_theme.background);

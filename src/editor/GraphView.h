@@ -87,7 +87,7 @@ int HitTestEdge(
     Rect canvasRect
 );
 
-void UpdateGraphViewInteraction(
+bool UpdateGraphViewInteraction(
     GraphViewState& view,
     graph::GraphDocument& graph,
     const InputState& input,

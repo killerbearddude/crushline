@@ -37,6 +37,8 @@ public:
 
 private:
     void AddEvent(std::string message);
+    void MarkGraphDirty();
+    void EvaluateGraphIfDirty();
     void UpdateEventLogFromSimulation();
 
     AppConfig m_config;
@@ -46,6 +48,8 @@ private:
     editor::GraphViewState m_graphView;
     graph::SimulationResult m_simulationResult;
     std::vector<std::string> m_eventLog;
+
+    bool m_graphDirty = true;
 
     bool m_eventLogPrimed = false;
     std::size_t m_lastNodeCount = 0;

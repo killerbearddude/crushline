@@ -194,11 +194,11 @@ void ClearGraphSelectionAndHover(GraphViewState& view)
     ClearWireDrag(view);
 }
 
-void DeleteSelectedNode(GraphViewState& view, graph::GraphDocument& graph)
+bool DeleteSelectedNode(GraphViewState& view, graph::GraphDocument& graph)
 {
-    if (view.selectedNodeId < 0)
+    if (view.selectedNodeId < 0 || !GraphHasNode(graph, view.selectedNodeId))
     {
-        return;
+        return false;
     }
 
     const int nodeId = view.selectedNodeId;
@@ -208,6 +208,7 @@ void DeleteSelectedNode(GraphViewState& view, graph::GraphDocument& graph)
 
     ClearGraphSelectionAndHover(view);
     SyncSelectedNodeVisuals(view);
+    return true;
 }
 
 int PortIndex(const graph::GraphNode& node, int portId)
@@ -651,7 +652,7 @@ int HitTestEdge(
     return -1;
 }
 
-void UpdateGraphViewInteraction(
+bool UpdateGraphViewInteraction(
     GraphViewState& view,
     graph::GraphDocument& graph,
     const InputState& input,
@@ -662,17 +663,17 @@ void UpdateGraphViewInteraction(
 
     if (input.keyDeletePressed && view.selectedEdgeId >= 0)
     {
+        const std::size_t previousEdgeCount = graph.edges.size();
         graph::RemoveEdge(graph, view.selectedEdgeId);
         view.selectedEdgeId = -1;
         view.hoveredEdgeId = -1;
         SyncSelectedNodeVisuals(view);
-        return;
+        return graph.edges.size() != previousEdgeCount;
     }
 
     if (input.keyDeletePressed && view.selectedNodeId >= 0)
     {
-        DeleteSelectedNode(view, graph);
-        return;
+        return DeleteSelectedNode(view, graph);
     }
 
     if (view.panningCanvas)
@@ -693,7 +694,7 @@ void UpdateGraphViewInteraction(
             ClearHoveredPort(view);
             ClearHoveredEdge(view);
             SyncSelectedNodeVisuals(view);
-            return;
+            return false;
         }
 
         view.panningCanvas = false;
@@ -721,7 +722,7 @@ void UpdateGraphViewInteraction(
             view.hoveredNodeId = view.draggingNodeId;
             ClearHoveredPort(view);
             SyncSelectedNodeVisuals(view);
-            return;
+            return false;
         }
 
         view.draggingNodeId = -1;
@@ -744,8 +745,10 @@ void UpdateGraphViewInteraction(
         {
             view.hoveredNodeId = -1;
             SyncSelectedNodeVisuals(view);
-            return;
+            return false;
         }
+
+        bool graphChanged = false;
 
         if (input.leftMouseReleased &&
             view.hoveredPortNodeId >= 0 &&
@@ -770,6 +773,7 @@ void UpdateGraphViewInteraction(
             {
                 view.selectedEdgeId = edgeId;
                 view.selectedNodeId = -1;
+                graphChanged = true;
             }
         }
 
@@ -778,7 +782,7 @@ void UpdateGraphViewInteraction(
         ClearWireDrag(view);
         ClearHoveredPort(view);
         SyncSelectedNodeVisuals(view);
-        return;
+        return graphChanged;
     }
 
     if (!canvasRect.Contains(input.mousePosition))
@@ -786,7 +790,7 @@ void UpdateGraphViewInteraction(
         view.hoveredNodeId = -1;
         ClearHoveredPort(view);
         SyncSelectedNodeVisuals(view);
-        return;
+        return false;
     }
 
     if (std::abs(input.mouseWheelDelta) > 0.0f)
@@ -821,7 +825,7 @@ void UpdateGraphViewInteraction(
         ClearHoveredPort(view);
         ClearHoveredEdge(view);
         SyncSelectedNodeVisuals(view);
-        return;
+        return false;
     }
 
     const PortHit portHit = HitTestPort(graph, view, canvasMouse, canvasRect);
@@ -872,6 +876,7 @@ void UpdateGraphViewInteraction(
     }
 
     SyncSelectedNodeVisuals(view);
+    return false;
 }
 
 void DrawGraphView(
