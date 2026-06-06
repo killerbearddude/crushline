@@ -458,7 +458,7 @@ PortHit HitTestPort(
 
 void UpdateGraphViewInteraction(
     GraphViewState& view,
-    const graph::GraphDocument& graph,
+    graph::GraphDocument& graph,
     const InputState& input,
     Rect canvasRect
 )
@@ -520,24 +520,47 @@ void UpdateGraphViewInteraction(
     {
         view.wirePreviewCanvasPosition = canvasMouse;
 
+        if (canvasRect.Contains(input.mousePosition))
+        {
+            SyncHoveredPort(view, HitTestPort(graph, view, canvasMouse, canvasRect));
+        }
+        else
+        {
+            ClearHoveredPort(view);
+        }
+
         if (input.leftMouseDown)
         {
-            if (canvasRect.Contains(input.mousePosition))
-            {
-                SyncHoveredPort(view, HitTestPort(graph, view, canvasMouse, canvasRect));
-            }
-            else
-            {
-                ClearHoveredPort(view);
-            }
-
             view.hoveredNodeId = -1;
             SyncSelectedNodeVisuals(view);
             return;
         }
 
+        if (input.leftMouseReleased &&
+            view.hoveredPortNodeId >= 0 &&
+            view.hoveredPortId >= 0 &&
+            graph::CanConnect(
+                graph,
+                view.wireStartNodeId,
+                view.wireStartPortId,
+                view.hoveredPortNodeId,
+                view.hoveredPortId
+            ))
+        {
+            graph::AddEdge(
+                graph,
+                view.wireStartNodeId,
+                view.wireStartPortId,
+                view.hoveredPortNodeId,
+                view.hoveredPortId
+            );
+        }
+
+        view.hoveredNodeId = -1;
         ClearWireDrag(view);
         ClearHoveredPort(view);
+        SyncSelectedNodeVisuals(view);
+        return;
     }
 
     if (!canvasRect.Contains(input.mousePosition))

@@ -79,7 +79,7 @@ PortHit HitTestPort(
 
 void UpdateGraphViewInteraction(
     GraphViewState& view,
-    const graph::GraphDocument& graph,
+    graph::GraphDocument& graph,
     const InputState& input,
     Rect canvasRect
 );
