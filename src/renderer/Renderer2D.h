@@ -12,6 +12,9 @@
 class Renderer2D
 {
 public:
+    bool Initialize();
+    void Shutdown();
+
     void BeginFrame(int width, int height, Color clearColor);
     void EndFrame();
 
@@ -31,8 +34,32 @@ public:
     int Height() const;
 
 private:
+    struct Vertex
+    {
+        Vec2 position{};
+        Color color{};
+    };
+
+    bool BuildPipeline();
+    void DestroyPipeline();
+    void BuildGeometry();
+
+    void AddRect(Rect rect, Color color);
+    void AddRectOutline(Rect rect, Color color, float thickness);
+    void AddLine(Vec2 a, Vec2 b, Color color, float thickness);
+    void AddCircle(Vec2 center, float radius, Color color);
+    void PushTriangle(Vertex a, Vertex b, Vertex c);
+
     std::vector<DrawCommand> m_commands;
+    std::vector<Vertex> m_vertices;
+
+    unsigned int m_program = 0;
+    unsigned int m_vao = 0;
+    unsigned int m_vbo = 0;
+
+    int m_projectionLocation = -1;
 
     int m_width = 0;
     int m_height = 0;
+    bool m_initialized = false;
 };

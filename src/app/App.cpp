@@ -14,6 +14,12 @@ bool App::Initialize(const AppConfig& config)
         return false;
     }
 
+    if (!m_renderer.Initialize())
+    {
+        m_window.Shutdown();
+        return false;
+    }
+
     m_lastTimeSeconds = GetSeconds();
 
     std::cout
@@ -87,8 +93,10 @@ void App::RunFrame()
         {graphPanel.x + 24.0f, graphPanel.y + 24.0f},
         {graphPanel.x + graphPanel.w - 24.0f, graphPanel.y + graphPanel.h - 24.0f},
         accent,
-        1.0f
+        2.0f
     );
+    m_renderer.DrawCircle({graphPanel.x + 24.0f, graphPanel.y + 24.0f}, 5.0f, accent);
+    m_renderer.DrawCircle({graphPanel.x + graphPanel.w - 24.0f, graphPanel.y + graphPanel.h - 24.0f}, 5.0f, accent);
 
     const std::size_t drawCommandCount = m_renderer.CommandCount();
     m_renderer.Flush();
@@ -119,6 +127,7 @@ void App::RunFrame()
 
 void App::Shutdown()
 {
+    m_renderer.Shutdown();
     m_window.Shutdown();
     std::cout << "Crushline UI shutdown.\n";
 }
