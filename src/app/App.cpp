@@ -1,12 +1,14 @@
 #include "app/App.h"
 
 #include "platform/Time.h"
+#include "graph/GraphDocument.h"
 #include "graph/GraphSerializer.h"
 #include "graph/SampleGraph.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -302,7 +304,136 @@ void DrawStatusChips(Renderer2D& renderer, Rect topBar, const UiTheme& theme, co
     }
 }
 
-void DrawInspectorBands(Renderer2D& renderer, Rect inspector, const UiTheme& theme)
+const char* NodeTypeLabel(graph::NodeType type)
+{
+    switch (type)
+    {
+        case graph::NodeType::Source: return "SOURCE";
+        case graph::NodeType::Machine: return "MACHINE";
+        case graph::NodeType::Storage: return "STORAGE";
+        case graph::NodeType::Output: return "OUTPUT";
+        case graph::NodeType::Contract: return "CONTRACT";
+        case graph::NodeType::Modifier: return "MODIFIER";
+        case graph::NodeType::Warning: return "WARNING";
+    }
+
+    return "MACHINE";
+}
+
+std::string FormatWhole(float value)
+{
+    char buffer[32]{};
+    std::snprintf(buffer, sizeof(buffer), "%.0f", value);
+    return buffer;
+}
+
+std::string FormatRate(float value)
+{
+    return FormatWhole(value) + " /m";
+}
+
+std::string FormatPower(float value)
+{
+    return FormatWhole(value) + " kW";
+}
+
+std::string FormatPercent(float value)
+{
+    char buffer[32]{};
+    std::snprintf(buffer, sizeof(buffer), "%.0f%%", Clamp01(value) * 100.0f);
+    return buffer;
+}
+
+std::string FormatId(int value)
+{
+    return "ID " + std::to_string(value);
+}
+
+const graph::NodeEvalResult* FindNodeEval(const graph::SimulationResult& simulation, int nodeId)
+{
+    const auto it = std::find_if(
+        simulation.nodes.begin(),
+        simulation.nodes.end(),
+        [nodeId](const graph::NodeEvalResult& result) {
+            return result.nodeId == nodeId;
+        }
+    );
+
+    return it == simulation.nodes.end() ? nullptr : &(*it);
+}
+
+void DrawColumnFrame(
+    Renderer2D& renderer,
+    Rect column,
+    const UiTheme& theme,
+    std::string_view title,
+    Color accent,
+    bool selected
+)
+{
+    renderer.DrawRect(column, selected ? theme.panelAlt : theme.panel);
+    renderer.DrawRectOutline(column, theme.panelBorder, 1.0f);
+    renderer.DrawText({column.x + 10.0f, column.y + 8.0f}, title, theme.textSecondary);
+    renderer.DrawLine(
+        {column.x + 10.0f, column.y + 24.0f},
+        {column.x + column.w - 10.0f, column.y + 24.0f},
+        accent,
+        2.0f
+    );
+}
+
+void DrawLabelValue(
+    Renderer2D& renderer,
+    Vec2 position,
+    std::string_view label,
+    const std::string& value,
+    const UiTheme& theme,
+    Color valueColor
+)
+{
+    renderer.DrawText(position, label, theme.textMuted);
+    renderer.DrawText({position.x + 120.0f, position.y}, value, valueColor);
+}
+
+void DrawPortList(
+    Renderer2D& renderer,
+    Rect column,
+    const UiTheme& theme,
+    const std::vector<graph::GraphPort>& ports
+)
+{
+    if (ports.empty())
+    {
+        renderer.DrawText({column.x + 12.0f, column.y + 38.0f}, "NONE", theme.textMuted);
+        return;
+    }
+
+    const int maxRows = 4;
+    const int count = std::min(static_cast<int>(ports.size()), maxRows);
+
+    for (int i = 0; i < count; ++i)
+    {
+        const graph::GraphPort& port = ports[static_cast<std::size_t>(i)];
+        const float y = column.y + 38.0f + static_cast<float>(i) * 18.0f;
+        renderer.DrawRect({column.x + 12.0f, y + 4.0f, 5.0f, 5.0f}, theme.accentCyan);
+        renderer.DrawText({column.x + 24.0f, y}, port.name, theme.textPrimary);
+        renderer.DrawText({column.x + column.w - 58.0f, y}, FormatId(port.id), theme.textMuted);
+    }
+
+    if (static_cast<int>(ports.size()) > maxRows)
+    {
+        renderer.DrawText({column.x + 12.0f, column.y + 38.0f + static_cast<float>(maxRows) * 18.0f}, "+ MORE", theme.textMuted);
+    }
+}
+
+void DrawSelectedNodeInspector(
+    Renderer2D& renderer,
+    Rect inspector,
+    const UiTheme& theme,
+    const graph::GraphDocument& graph,
+    const editor::GraphViewState& view,
+    const graph::SimulationResult& simulation
+)
 {
     const Rect content = InsetRect(inspector, theme.panelPadding);
     const float columnGap = 12.0f;
@@ -310,18 +441,62 @@ void DrawInspectorBands(Renderer2D& renderer, Rect inspector, const UiTheme& the
     const float y = inspector.y + 44.0f;
     const float h = inspector.h - 58.0f;
 
+    std::array<Rect, 4> columns{};
     for (int i = 0; i < 4; ++i)
     {
-        const Rect column = {content.x + static_cast<float>(i) * (columnW + columnGap), y, columnW, h};
-        renderer.DrawRect(column, i == 0 ? theme.panelAlt : theme.panel);
-        renderer.DrawRectOutline(column, theme.panelBorder, 1.0f);
-        renderer.DrawText({column.x + 10.0f, column.y + 8.0f}, i == 0 ? "SELECTED" : "DETAILS", theme.textSecondary);
-        renderer.DrawLine(
-            {column.x + 10.0f, column.y + 24.0f},
-            {column.x + column.w - 10.0f, column.y + 24.0f},
-            i == 0 ? theme.accentCyan : theme.panelHighlight,
-            2.0f
-        );
+        columns[static_cast<std::size_t>(i)] = {
+            content.x + static_cast<float>(i) * (columnW + columnGap),
+            y,
+            columnW,
+            h
+        };
+    }
+
+    const graph::GraphNode* selectedNode = graph::FindNode(graph, view.selectedNodeId);
+    const graph::NodeEvalResult* nodeEval = selectedNode == nullptr ? nullptr : FindNodeEval(simulation, selectedNode->id);
+
+    DrawColumnFrame(renderer, columns[0], theme, "SELECTED NODE", theme.accentCyan, true);
+    DrawColumnFrame(renderer, columns[1], theme, "METRICS", theme.panelHighlight, false);
+    DrawColumnFrame(renderer, columns[2], theme, "INPUTS", theme.panelHighlight, false);
+    DrawColumnFrame(renderer, columns[3], theme, "OUTPUTS", theme.panelHighlight, false);
+
+    if (selectedNode == nullptr)
+    {
+        renderer.DrawText({columns[0].x + 12.0f, columns[0].y + 38.0f}, "NO NODE SELECTED", theme.textMuted);
+        renderer.DrawText({columns[0].x + 12.0f, columns[0].y + 58.0f}, "CLICK A NODE", theme.textMuted);
+        renderer.DrawText({columns[1].x + 12.0f, columns[1].y + 38.0f}, "SELECT A NODE TO VIEW DETAILS", theme.textMuted);
+        renderer.DrawText({columns[2].x + 12.0f, columns[2].y + 38.0f}, "NONE", theme.textMuted);
+        renderer.DrawText({columns[3].x + 12.0f, columns[3].y + 38.0f}, "NONE", theme.textMuted);
+        return;
+    }
+
+    const float utilization = nodeEval == nullptr ? SafeRatio(selectedNode->throughput, selectedNode->capacity) : Clamp01(nodeEval->utilization);
+    const float powerRatio = SafeRatio(selectedNode->powerUse, simulation.totalPowerCapacity);
+    const bool warning = selectedNode->warning || (nodeEval != nullptr && nodeEval->warning);
+    const Color statusColor = warning ? theme.accentAmber : theme.accentGreen;
+
+    renderer.DrawText({columns[0].x + 12.0f, columns[0].y + 36.0f}, selectedNode->name, theme.textPrimary);
+    renderer.DrawText({columns[0].x + 12.0f, columns[0].y + 56.0f}, NodeTypeLabel(selectedNode->type), theme.textSecondary);
+    renderer.DrawText({columns[0].x + 12.0f, columns[0].y + 76.0f}, FormatId(selectedNode->id), theme.textMuted);
+    renderer.DrawText({columns[0].x + 118.0f, columns[0].y + 76.0f}, warning ? "WARNING" : "NOMINAL", statusColor);
+
+    DrawLabelValue(renderer, {columns[1].x + 12.0f, columns[1].y + 36.0f}, "RATE", FormatRate(selectedNode->throughput), theme, theme.textPrimary);
+    DrawLabelValue(renderer, {columns[1].x + 12.0f, columns[1].y + 54.0f}, "CAPACITY", FormatRate(selectedNode->capacity), theme, theme.textPrimary);
+    DrawLabelValue(renderer, {columns[1].x + 12.0f, columns[1].y + 72.0f}, "EFF", FormatPercent(selectedNode->efficiency), theme, Mix(theme.accentAmber, theme.accentGreen, selectedNode->efficiency));
+    DrawLabelValue(renderer, {columns[1].x + 12.0f, columns[1].y + 90.0f}, "POWER", FormatPower(selectedNode->powerUse), theme, AlertColor(theme, powerRatio));
+
+    DrawProgressBar(renderer, {columns[1].x + 12.0f, columns[1].y + columns[1].h - 24.0f, columns[1].w - 24.0f, 8.0f}, theme, utilization, AlertColor(theme, utilization));
+
+    DrawPortList(renderer, columns[2], theme, selectedNode->inputs);
+    DrawPortList(renderer, columns[3], theme, selectedNode->outputs);
+
+    if (warning)
+    {
+        const std::string warningText = nodeEval != nullptr && !nodeEval->warningText.empty()
+            ? nodeEval->warningText
+            : selectedNode->warningText;
+
+        renderer.DrawText({columns[3].x + 12.0f, columns[3].y + columns[3].h - 22.0f}, warningText.empty() ? "WARNING ACTIVE" : warningText, theme.accentAmber);
     }
 }
 }
@@ -441,7 +616,7 @@ void App::RunFrame()
     DrawStatusChips(m_renderer, regions.topBar, m_theme, m_simulationResult);
     DrawDashboardMetrics(m_renderer, regions.leftPanel, m_theme, m_graph, m_simulationResult, true);
     DrawDashboardMetrics(m_renderer, regions.rightPanel, m_theme, m_graph, m_simulationResult, false);
-    DrawInspectorBands(m_renderer, regions.inspector, m_theme);
+    DrawSelectedNodeInspector(m_renderer, regions.inspector, m_theme, m_graph, m_graphView, m_simulationResult);
 
     editor::DrawGraphView(m_renderer, m_graph, m_graphView, regions.graphCanvas, m_theme);
 
