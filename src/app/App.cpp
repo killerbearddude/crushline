@@ -12,6 +12,8 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace
 {
@@ -499,6 +501,169 @@ void DrawSelectedNodeInspector(
         renderer.DrawText({columns[3].x + 12.0f, columns[3].y + columns[3].h - 22.0f}, warningText.empty() ? "WARNING ACTIVE" : warningText, theme.accentAmber);
     }
 }
+
+
+Color EventAccentColor(const UiTheme& theme, const std::string& message)
+{
+    if (message.find("failed") != std::string::npos ||
+        message.find("Failed") != std::string::npos ||
+        message.find("exceeds") != std::string::npos ||
+        message.find("Bottlenecks active") != std::string::npos)
+    {
+        return theme.accentRed;
+    }
+
+    if (message.find("Warning") != std::string::npos ||
+        message.find("Warnings") != std::string::npos ||
+        message.find("Low") != std::string::npos ||
+        message.find("bottleneck") != std::string::npos ||
+        message.find("clogged") != std::string::npos)
+    {
+        return theme.accentAmber;
+    }
+
+    if (message.find("saved") != std::string::npos ||
+        message.find("loaded") != std::string::npos ||
+        message.find("reset") != std::string::npos ||
+        message.find("ready") != std::string::npos)
+    {
+        return theme.accentGreen;
+    }
+
+    return theme.accentCyan;
+}
+
+float EstimateEventWidth(const std::string& message)
+{
+    return std::clamp(34.0f + static_cast<float>(message.size()) * 7.5f, 120.0f, 340.0f);
+}
+
+void DrawEventLogMessages(
+    Renderer2D& renderer,
+    Rect eventLog,
+    const UiTheme& theme,
+    const std::vector<std::string>& events
+)
+{
+    if (events.empty())
+    {
+        renderer.DrawText({eventLog.x + 118.0f, eventLog.y + 8.0f}, "NO EVENTS", theme.textMuted);
+        return;
+    }
+
+    const float y = eventLog.y + 6.0f;
+    const float h = 19.0f;
+    const float gap = 8.0f;
+    const float right = eventLog.x + eventLog.w - 14.0f;
+    float x = eventLog.x + 112.0f;
+
+    const int maxEvents = std::min(static_cast<int>(events.size()), 5);
+    for (int i = 0; i < maxEvents; ++i)
+    {
+        const std::string& message = events[static_cast<std::size_t>(i)];
+        const float w = EstimateEventWidth(message);
+
+        if (x + w > right)
+        {
+            break;
+        }
+
+        const Rect pill = {x, y, w, h};
+        const Color accent = EventAccentColor(theme, message);
+
+        renderer.DrawRect(pill, i == 0 ? theme.panelAlt : theme.panel);
+        renderer.DrawRectOutline(pill, theme.panelBorder, 1.0f);
+        renderer.DrawRect({pill.x + 7.0f, pill.y + 5.0f, 4.0f, pill.h - 10.0f}, accent);
+        renderer.DrawText({pill.x + 18.0f, pill.y + 3.0f}, message, i == 0 ? theme.textPrimary : theme.textSecondary);
+
+        x += w + gap;
+    }
+}
+}
+
+
+void App::AddEvent(std::string message)
+{
+    if (message.empty())
+    {
+        return;
+    }
+
+    if (!m_eventLog.empty() && m_eventLog.front() == message)
+    {
+        return;
+    }
+
+    const auto existing = std::find(m_eventLog.begin(), m_eventLog.end(), message);
+    if (existing != m_eventLog.end())
+    {
+        m_eventLog.erase(existing);
+    }
+
+    m_eventLog.insert(m_eventLog.begin(), std::move(message));
+
+    constexpr std::size_t maxEvents = 8;
+    if (m_eventLog.size() > maxEvents)
+    {
+        m_eventLog.resize(maxEvents);
+    }
+}
+
+void App::UpdateEventLogFromSimulation()
+{
+    const bool firstUpdate = !m_eventLogPrimed;
+    const std::size_t nodeCount = m_graph.nodes.size();
+    const std::size_t edgeCount = m_graph.edges.size();
+
+    if (firstUpdate)
+    {
+        AddEvent("Factory graph ready");
+    }
+
+    if (firstUpdate || nodeCount != m_lastNodeCount)
+    {
+        AddEvent("Nodes active: " + std::to_string(nodeCount));
+    }
+
+    if (firstUpdate || edgeCount != m_lastEdgeCount)
+    {
+        AddEvent("Links active: " + std::to_string(edgeCount));
+    }
+
+    if (firstUpdate || m_simulationResult.warningCount != m_lastWarningCount)
+    {
+        if (m_simulationResult.warningCount > 0)
+        {
+            AddEvent("Warnings active: " + std::to_string(m_simulationResult.warningCount));
+        }
+        else if (!firstUpdate || m_lastWarningCount > 0)
+        {
+            AddEvent("Warnings clear");
+        }
+
+        for (auto it = m_simulationResult.events.rbegin(); it != m_simulationResult.events.rend(); ++it)
+        {
+            AddEvent(*it);
+        }
+    }
+
+    if (firstUpdate || m_simulationResult.bottleneckCount != m_lastBottleneckCount)
+    {
+        if (m_simulationResult.bottleneckCount > 0)
+        {
+            AddEvent("Bottlenecks active: " + std::to_string(m_simulationResult.bottleneckCount));
+        }
+        else if (!firstUpdate || m_lastBottleneckCount > 0)
+        {
+            AddEvent("Bottlenecks clear");
+        }
+    }
+
+    m_lastNodeCount = nodeCount;
+    m_lastEdgeCount = edgeCount;
+    m_lastWarningCount = m_simulationResult.warningCount;
+    m_lastBottleneckCount = m_simulationResult.bottleneckCount;
+    m_eventLogPrimed = true;
 }
 
 bool App::Initialize(const AppConfig& config)
@@ -519,6 +684,7 @@ bool App::Initialize(const AppConfig& config)
     m_graph = graph::CreateSampleFactoryGraph();
     m_graphView = editor::CreateSampleFactoryGraphView(m_graph);
     m_simulationResult = graph::EvaluateGraph(m_graph);
+    UpdateEventLogFromSimulation();
 
     m_lastTimeSeconds = GetSeconds();
 
@@ -556,6 +722,7 @@ void App::RunFrame()
     {
         m_graph = graph::CreateSampleFactoryGraph();
         m_graphView = editor::CreateSampleFactoryGraphView(m_graph);
+        AddEvent("Sample graph reset");
         std::cout << "Sample factory graph reset.\n";
     }
 
@@ -564,10 +731,12 @@ void App::RunFrame()
         std::string errorMessage;
         if (graph::SaveGraphToFile(m_graph, m_graphView, CurrentGraphPath, &errorMessage))
         {
+            AddEvent("Graph saved");
             std::cout << "Graph saved to " << CurrentGraphPath << ".\n";
         }
         else
         {
+            AddEvent("Graph save failed");
             std::cerr << "Graph save failed: " << errorMessage << "\n";
         }
     }
@@ -578,10 +747,12 @@ void App::RunFrame()
         if (graph::LoadGraphFromFile(m_graph, m_graphView, CurrentGraphPath, &errorMessage))
         {
             m_simulationResult = graph::EvaluateGraph(m_graph);
+            AddEvent("Graph loaded");
             std::cout << "Graph loaded from " << CurrentGraphPath << ".\n";
         }
         else
         {
+            AddEvent("Graph load failed");
             std::cerr << "Graph load failed: " << errorMessage << "\n";
         }
     }
@@ -595,6 +766,7 @@ void App::RunFrame()
     editor::EnsureNodeVisuals(m_graphView, m_graph);
     editor::UpdateGraphViewInteraction(m_graphView, m_graph, m_input, regions.graphCanvas);
     m_simulationResult = graph::EvaluateGraph(m_graph);
+    UpdateEventLogFromSimulation();
 
     m_renderer.BeginFrame(m_window.Width(), m_window.Height(), m_theme.background);
 
@@ -612,6 +784,7 @@ void App::RunFrame()
     m_renderer.DrawText({regions.rightPanel.x + 14.0f, regions.rightPanel.y + 8.0f}, "PLANT", m_theme.textSecondary);
     m_renderer.DrawText({regions.inspector.x + 14.0f, regions.inspector.y + 8.0f}, "INSPECTOR", m_theme.textSecondary);
     m_renderer.DrawText({regions.eventLog.x + 14.0f, regions.eventLog.y + 8.0f}, "EVENT LOG", m_theme.textSecondary);
+    DrawEventLogMessages(m_renderer, regions.eventLog, m_theme, m_eventLog);
 
     DrawStatusChips(m_renderer, regions.topBar, m_theme, m_simulationResult);
     DrawDashboardMetrics(m_renderer, regions.leftPanel, m_theme, m_graph, m_simulationResult, true);

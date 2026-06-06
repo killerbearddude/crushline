@@ -9,6 +9,10 @@
 #include "renderer/Renderer2D.h"
 #include "ui/Theme.h"
 
+#include <cstddef>
+#include <string>
+#include <vector>
+
 struct AppConfig
 {
     const char* title = "Crushline";
@@ -32,12 +36,22 @@ public:
     bool ShouldClose() const;
 
 private:
+    void AddEvent(std::string message);
+    void UpdateEventLogFromSimulation();
+
     AppConfig m_config;
     DashboardLayoutMetrics m_layoutMetrics;
     UiTheme m_theme = MakeIndustrialDarkTheme();
     graph::GraphDocument m_graph;
     editor::GraphViewState m_graphView;
     graph::SimulationResult m_simulationResult;
+    std::vector<std::string> m_eventLog;
+
+    bool m_eventLogPrimed = false;
+    std::size_t m_lastNodeCount = 0;
+    std::size_t m_lastEdgeCount = 0;
+    int m_lastWarningCount = 0;
+    int m_lastBottleneckCount = 0;
 
     Window m_window;
     InputState m_input;
