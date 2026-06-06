@@ -6,17 +6,30 @@
 
 #include <iostream>
 
-bool App::Initialize()
+bool App::Initialize(const AppConfig& config)
 {
-    if (!m_window.Create("Crushline", 1536, 864))
+    m_config = config;
+
+    if (!m_window.Create(m_config.title, m_config.width, m_config.height))
     {
         return false;
     }
 
     m_lastTimeSeconds = GetSeconds();
 
-    std::cout << "Crushline UI initialized.\n";
-    std::cout << "Press Escape or close the window to quit.\n";
+    std::cout
+        << "Crushline UI initialized at "
+        << m_window.Width() << "x" << m_window.Height()
+        << ".\n";
+
+    if (m_config.maxFrames > 0)
+    {
+        std::cout << "Auto-exit enabled after " << m_config.maxFrames << " frame(s).\n";
+    }
+    else
+    {
+        std::cout << "Press Escape or close the window to quit.\n";
+    }
 
     return true;
 }
@@ -38,12 +51,13 @@ void App::RunFrame()
     glClearColor(0.035f, 0.038f, 0.042f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    if ((m_frameIndex % 60) == 0)
+    if (m_config.logEveryNFrames > 0 && (m_frameIndex % m_config.logEveryNFrames) == 0)
     {
         std::cout
             << "frame=" << m_frameIndex
             << " dt=" << m_deltaTimeSeconds
             << " mouse=(" << m_input.mousePosition.x << ", " << m_input.mousePosition.y << ")"
+            << " delta=(" << m_input.mouseDelta.x << ", " << m_input.mouseDelta.y << ")"
             << " wheel=" << m_input.mouseWheelDelta
             << "\n";
     }
@@ -51,6 +65,11 @@ void App::RunFrame()
     m_window.SwapBuffers();
 
     ++m_frameIndex;
+
+    if (m_config.maxFrames > 0 && m_frameIndex >= m_config.maxFrames)
+    {
+        m_shouldClose = true;
+    }
 }
 
 void App::Shutdown()

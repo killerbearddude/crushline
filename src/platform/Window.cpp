@@ -47,6 +47,17 @@ bool Window::Create(const char* title, int width, int height)
         return false;
     }
 
+    if (!SDL_GL_MakeCurrent(m_window, m_glContext))
+    {
+        std::cerr << "SDL_GL_MakeCurrent failed: " << SDL_GetError() << "\n";
+        SDL_GL_DestroyContext(m_glContext);
+        m_glContext = nullptr;
+        SDL_DestroyWindow(m_window);
+        m_window = nullptr;
+        SDL_Quit();
+        return false;
+    }
+
     if (!SDL_GL_SetSwapInterval(1))
     {
         std::cerr << "Warning: SDL_GL_SetSwapInterval failed: " << SDL_GetError() << "\n";
@@ -108,7 +119,12 @@ void Window::PollEvents(InputState& input)
     input.leftMouseReleased = !leftDown && m_previousLeftMouseDown;
 
     input.middleMouseDown = middleDown;
+    input.middleMousePressed = middleDown && !m_previousMiddleMouseDown;
+    input.middleMouseReleased = !middleDown && m_previousMiddleMouseDown;
+
     input.rightMouseDown = rightDown;
+    input.rightMousePressed = rightDown && !m_previousRightMouseDown;
+    input.rightMouseReleased = !rightDown && m_previousRightMouseDown;
 
     const bool* keyboard = SDL_GetKeyboardState(nullptr);
 
@@ -127,6 +143,9 @@ void Window::PollEvents(InputState& input)
         keyboard[SDL_SCANCODE_RSHIFT];
 
     m_previousLeftMouseDown = leftDown;
+    m_previousMiddleMouseDown = middleDown;
+    m_previousRightMouseDown = rightDown;
+
     m_previousDeleteDown = deleteDown;
     m_previousEscapeDown = escapeDown;
 }

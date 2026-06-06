@@ -12,7 +12,12 @@ struct InputState
     bool leftMouseReleased = false;
 
     bool middleMouseDown = false;
+    bool middleMousePressed = false;
+    bool middleMouseReleased = false;
+
     bool rightMouseDown = false;
+    bool rightMousePressed = false;
+    bool rightMouseReleased = false;
 
     float mouseWheelDelta = 0.0f;
 
@@ -28,6 +33,10 @@ struct InputState
 
         leftMousePressed = false;
         leftMouseReleased = false;
+        middleMousePressed = false;
+        middleMouseReleased = false;
+        rightMousePressed = false;
+        rightMouseReleased = false;
 
         keyDeletePressed = false;
         keyEscapePressed = false;

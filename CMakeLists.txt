@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(FetchContent)
+include(CTest)
 
 set(SDL_SHARED OFF CACHE BOOL "" FORCE)
 set(SDL_STATIC ON CACHE BOOL "" FORCE)
@@ -41,4 +42,8 @@ if (MSVC)
     target_compile_options(crushline PRIVATE /W4)
 else()
     target_compile_options(crushline PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+if (BUILD_TESTING)
+    add_test(NAME crushline_smoke COMMAND crushline --smoke-test)
 endif()

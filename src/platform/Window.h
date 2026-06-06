@@ -27,6 +27,9 @@ private:
     int m_height = 0;
 
     bool m_previousLeftMouseDown = false;
+    bool m_previousMiddleMouseDown = false;
+    bool m_previousRightMouseDown = false;
+
     bool m_previousDeleteDown = false;
     bool m_previousEscapeDown = false;
 };
