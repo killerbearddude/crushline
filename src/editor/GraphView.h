@@ -31,6 +31,9 @@ struct GraphViewState
     int selectedNodeId = -1;
     int hoveredNodeId = -1;
     int draggingNodeId = -1;
+
+    Vec2 dragStartCanvasPosition{};
+    Vec2 dragStartNodePosition{};
 };
 
 GraphViewState CreateSampleFactoryGraphView(const graph::GraphDocument& graph);

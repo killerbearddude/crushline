@@ -321,6 +321,35 @@ void UpdateGraphViewInteraction(
     Rect canvasRect
 )
 {
+    const Vec2 canvasMouse = ScreenToCanvas(input.mousePosition, view, canvasRect);
+
+    if (view.draggingNodeId >= 0)
+    {
+        if (input.leftMouseDown)
+        {
+            auto visualIt = view.nodeVisuals.find(view.draggingNodeId);
+
+            if (visualIt != view.nodeVisuals.end())
+            {
+                const Vec2 delta = {
+                    canvasMouse.x - view.dragStartCanvasPosition.x,
+                    canvasMouse.y - view.dragStartCanvasPosition.y
+                };
+
+                visualIt->second.position = {
+                    view.dragStartNodePosition.x + delta.x,
+                    view.dragStartNodePosition.y + delta.y
+                };
+            }
+
+            view.hoveredNodeId = view.draggingNodeId;
+            SyncSelectedNodeVisuals(view);
+            return;
+        }
+
+        view.draggingNodeId = -1;
+    }
+
     if (!canvasRect.Contains(input.mousePosition))
     {
         view.hoveredNodeId = -1;
@@ -328,12 +357,23 @@ void UpdateGraphViewInteraction(
         return;
     }
 
-    const Vec2 canvasMouse = ScreenToCanvas(input.mousePosition, view, canvasRect);
     view.hoveredNodeId = HitTestNode(graph, view, canvasMouse);
 
     if (input.leftMousePressed)
     {
         view.selectedNodeId = view.hoveredNodeId;
+
+        if (view.hoveredNodeId >= 0)
+        {
+            view.draggingNodeId = view.hoveredNodeId;
+            view.dragStartCanvasPosition = canvasMouse;
+
+            const auto visualIt = view.nodeVisuals.find(view.hoveredNodeId);
+            if (visualIt != view.nodeVisuals.end())
+            {
+                view.dragStartNodePosition = visualIt->second.position;
+            }
+        }
     }
 
     SyncSelectedNodeVisuals(view);

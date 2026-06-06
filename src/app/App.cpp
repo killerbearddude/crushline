@@ -206,6 +206,7 @@ void App::RunFrame()
             << " wheel=" << m_input.mouseWheelDelta
             << " selectedNode=" << m_graphView.selectedNodeId
             << " hoveredNode=" << m_graphView.hoveredNodeId
+            << " draggingNode=" << m_graphView.draggingNodeId
             << " drawCommands=" << drawCommandCount
             << "\n";
     }
