@@ -37,6 +37,7 @@ add_executable(crushline
     src/app/DashboardLayout.cpp
     src/editor/GraphView.cpp
     src/graph/GraphDocument.cpp
+    src/graph/GraphEvaluator.cpp
     src/graph/GraphSerializer.cpp
     src/graph/SampleGraph.cpp
     tests/GraphSerializerRoundTrip.cpp

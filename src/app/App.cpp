@@ -159,6 +159,7 @@ bool App::Initialize(const AppConfig& config)
 
     m_graph = graph::CreateSampleFactoryGraph();
     m_graphView = editor::CreateSampleFactoryGraphView(m_graph);
+    m_simulationResult = graph::EvaluateGraph(m_graph);
 
     m_lastTimeSeconds = GetSeconds();
 
@@ -217,6 +218,7 @@ void App::RunFrame()
         std::string errorMessage;
         if (graph::LoadGraphFromFile(m_graph, m_graphView, CurrentGraphPath, &errorMessage))
         {
+            m_simulationResult = graph::EvaluateGraph(m_graph);
             std::cout << "Graph loaded from " << CurrentGraphPath << ".\n";
         }
         else
@@ -249,6 +251,7 @@ void App::RunFrame()
 
     editor::EnsureNodeVisuals(m_graphView, m_graph);
     editor::UpdateGraphViewInteraction(m_graphView, m_graph, m_input, regions.graphCanvas);
+    m_simulationResult = graph::EvaluateGraph(m_graph);
     editor::DrawGraphView(m_renderer, m_graph, m_graphView, regions.graphCanvas, m_theme);
 
     const std::size_t drawCommandCount = m_renderer.CommandCount();
@@ -271,6 +274,11 @@ void App::RunFrame()
             << " draggingWire=" << (m_graphView.draggingWire ? 1 : 0)
             << " nodes=" << m_graph.nodes.size()
             << " edges=" << m_graph.edges.size()
+            << " throughput=" << m_simulationResult.totalThroughput
+            << " power=" << m_simulationResult.totalPowerUse << "/" << m_simulationResult.totalPowerCapacity
+            << " efficiency=" << m_simulationResult.plantEfficiency
+            << " warnings=" << m_simulationResult.warningCount
+            << " bottlenecks=" << m_simulationResult.bottleneckCount
             << " panning=" << (m_graphView.panningCanvas ? 1 : 0)
             << " zoom=" << m_graphView.zoom
             << " camera=(" << m_graphView.cameraOffset.x << ", " << m_graphView.cameraOffset.y << ")"

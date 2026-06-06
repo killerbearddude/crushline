@@ -2,6 +2,7 @@
 
 #include "app/DashboardLayout.h"
 #include "editor/GraphView.h"
+#include "graph/GraphEvaluator.h"
 #include "graph/GraphTypes.h"
 #include "platform/Input.h"
 #include "platform/Window.h"
@@ -36,6 +37,7 @@ private:
     UiTheme m_theme = MakeIndustrialDarkTheme();
     graph::GraphDocument m_graph;
     editor::GraphViewState m_graphView;
+    graph::SimulationResult m_simulationResult;
 
     Window m_window;
     InputState m_input;
