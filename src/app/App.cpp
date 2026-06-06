@@ -232,6 +232,7 @@ void App::RunFrame()
             << " hoveredPort=" << m_graphView.hoveredPortNodeId << ":" << m_graphView.hoveredPortId
             << " draggingNode=" << m_graphView.draggingNodeId
             << " draggingWire=" << (m_graphView.draggingWire ? 1 : 0)
+            << " nodes=" << m_graph.nodes.size()
             << " edges=" << m_graph.edges.size()
             << " panning=" << (m_graphView.panningCanvas ? 1 : 0)
             << " zoom=" << m_graphView.zoom

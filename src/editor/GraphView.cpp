@@ -177,6 +177,39 @@ void SyncSelectedNodeVisuals(GraphViewState& view)
     }
 }
 
+bool GraphHasNode(const graph::GraphDocument& graph, int nodeId)
+{
+    return graph::FindNode(graph, nodeId) != nullptr;
+}
+
+void ClearGraphSelectionAndHover(GraphViewState& view)
+{
+    view.selectedNodeId = -1;
+    view.hoveredNodeId = -1;
+    view.draggingNodeId = -1;
+
+    view.selectedEdgeId = -1;
+    ClearHoveredEdge(view);
+    ClearHoveredPort(view);
+    ClearWireDrag(view);
+}
+
+void DeleteSelectedNode(GraphViewState& view, graph::GraphDocument& graph)
+{
+    if (view.selectedNodeId < 0)
+    {
+        return;
+    }
+
+    const int nodeId = view.selectedNodeId;
+
+    graph::RemoveNode(graph, nodeId);
+    view.nodeVisuals.erase(nodeId);
+
+    ClearGraphSelectionAndHover(view);
+    SyncSelectedNodeVisuals(view);
+}
+
 int PortIndex(const graph::GraphNode& node, int portId)
 {
     for (int i = 0; i < static_cast<int>(node.inputs.size()); ++i)
@@ -442,6 +475,33 @@ GraphViewState CreateSampleFactoryGraphView(const graph::GraphDocument& graph)
 
 void EnsureNodeVisuals(GraphViewState& view, const graph::GraphDocument& graph)
 {
+    for (auto it = view.nodeVisuals.begin(); it != view.nodeVisuals.end();)
+    {
+        if (GraphHasNode(graph, it->first))
+        {
+            ++it;
+        }
+        else
+        {
+            it = view.nodeVisuals.erase(it);
+        }
+    }
+
+    if (view.selectedNodeId >= 0 && !GraphHasNode(graph, view.selectedNodeId))
+    {
+        view.selectedNodeId = -1;
+    }
+
+    if (view.hoveredNodeId >= 0 && !GraphHasNode(graph, view.hoveredNodeId))
+    {
+        view.hoveredNodeId = -1;
+    }
+
+    if (view.draggingNodeId >= 0 && !GraphHasNode(graph, view.draggingNodeId))
+    {
+        view.draggingNodeId = -1;
+    }
+
     for (const graph::GraphNode& node : graph.nodes)
     {
         if (!view.nodeVisuals.contains(node.id))
@@ -454,6 +514,8 @@ void EnsureNodeVisuals(GraphViewState& view, const graph::GraphDocument& graph)
             };
         }
     }
+
+    SyncSelectedNodeVisuals(view);
 }
 
 int HitTestNode(
@@ -601,6 +663,12 @@ void UpdateGraphViewInteraction(
         view.selectedEdgeId = -1;
         view.hoveredEdgeId = -1;
         SyncSelectedNodeVisuals(view);
+        return;
+    }
+
+    if (input.keyDeletePressed && view.selectedNodeId >= 0)
+    {
+        DeleteSelectedNode(view, graph);
         return;
     }
 
