@@ -1,13 +1,17 @@
 #include "app/App.h"
 
 #include "platform/Time.h"
+#include "graph/GraphSerializer.h"
 #include "graph/SampleGraph.h"
 
 #include <cmath>
 #include <iostream>
+#include <string>
 
 namespace
 {
+constexpr const char* CurrentGraphPath = "data/current_graph.json";
+
 void DrawPanel(Renderer2D& renderer, Rect rect, const UiTheme& theme, Color fill)
 {
     renderer.DrawRect(rect, fill);
@@ -169,7 +173,7 @@ bool App::Initialize(const AppConfig& config)
     }
     else
     {
-        std::cout << "Press Escape or close the window to quit. Ctrl+R resets the sample graph.\n";
+        std::cout << "Press Escape or close the window to quit. Ctrl+R resets, Ctrl+S saves, Ctrl+L loads.\n";
     }
 
     return true;
@@ -193,6 +197,32 @@ void App::RunFrame()
         m_graph = graph::CreateSampleFactoryGraph();
         m_graphView = editor::CreateSampleFactoryGraphView(m_graph);
         std::cout << "Sample factory graph reset.\n";
+    }
+
+    if (m_input.keyCtrlDown && m_input.keySPressed)
+    {
+        std::string errorMessage;
+        if (graph::SaveGraphToFile(m_graph, m_graphView, CurrentGraphPath, &errorMessage))
+        {
+            std::cout << "Graph saved to " << CurrentGraphPath << ".\n";
+        }
+        else
+        {
+            std::cerr << "Graph save failed: " << errorMessage << "\n";
+        }
+    }
+
+    if (m_input.keyCtrlDown && m_input.keyLPressed)
+    {
+        std::string errorMessage;
+        if (graph::LoadGraphFromFile(m_graph, m_graphView, CurrentGraphPath, &errorMessage))
+        {
+            std::cout << "Graph loaded from " << CurrentGraphPath << ".\n";
+        }
+        else
+        {
+            std::cerr << "Graph load failed: " << errorMessage << "\n";
+        }
     }
 
     m_renderer.BeginFrame(m_window.Width(), m_window.Height(), m_theme.background);

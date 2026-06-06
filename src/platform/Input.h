@@ -23,7 +23,9 @@ struct InputState
 
     bool keyDeletePressed = false;
     bool keyEscapePressed = false;
+    bool keyLPressed = false;
     bool keyRPressed = false;
+    bool keySPressed = false;
     bool keyCtrlDown = false;
     bool keyShiftDown = false;
 
@@ -41,6 +43,8 @@ struct InputState
 
         keyDeletePressed = false;
         keyEscapePressed = false;
+        keyLPressed = false;
         keyRPressed = false;
+        keySPressed = false;
     }
 };

@@ -130,11 +130,15 @@ void Window::PollEvents(InputState& input)
 
     const bool deleteDown = keyboard[SDL_SCANCODE_DELETE];
     const bool escapeDown = keyboard[SDL_SCANCODE_ESCAPE];
+    const bool lDown = keyboard[SDL_SCANCODE_L];
     const bool rDown = keyboard[SDL_SCANCODE_R];
+    const bool sDown = keyboard[SDL_SCANCODE_S];
 
     input.keyDeletePressed = deleteDown && !m_previousDeleteDown;
     input.keyEscapePressed = escapeDown && !m_previousEscapeDown;
+    input.keyLPressed = lDown && !m_previousLDown;
     input.keyRPressed = rDown && !m_previousRDown;
+    input.keySPressed = sDown && !m_previousSDown;
 
     input.keyCtrlDown =
         keyboard[SDL_SCANCODE_LCTRL] ||
@@ -150,7 +154,9 @@ void Window::PollEvents(InputState& input)
 
     m_previousDeleteDown = deleteDown;
     m_previousEscapeDown = escapeDown;
+    m_previousLDown = lDown;
     m_previousRDown = rDown;
+    m_previousSDown = sDown;
 }
 
 void Window::SwapBuffers()

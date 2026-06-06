@@ -20,7 +20,14 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE
 )
 
-FetchContent_MakeAvailable(SDL3)
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+    GIT_SHALLOW TRUE
+)
+
+FetchContent_MakeAvailable(SDL3 nlohmann_json)
 
 find_package(OpenGL REQUIRED)
 
@@ -30,6 +37,7 @@ add_executable(crushline
     src/app/DashboardLayout.cpp
     src/editor/GraphView.cpp
     src/graph/GraphDocument.cpp
+    src/graph/GraphSerializer.cpp
     src/graph/SampleGraph.cpp
     src/platform/Window.cpp
     src/platform/Time.cpp
@@ -42,6 +50,7 @@ target_include_directories(crushline PRIVATE src)
 target_link_libraries(crushline PRIVATE
     SDL3::SDL3
     OpenGL::GL
+    nlohmann_json::nlohmann_json
 )
 
 if (MSVC)
