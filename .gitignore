@@ -8,3 +8,6 @@ build/
 *.dll
 *.dylib
 *.exe
+
+# Runtime graph save file
+/data/current_graph.json
