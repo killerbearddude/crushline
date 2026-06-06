@@ -186,7 +186,40 @@ std::filesystem::path MakeTempPath()
 }
 }
 
-int RunGraphSerializerRoundTripTest()
+
+struct LoadedGraphState
+{
+    graph::GraphDocument graph;
+    editor::GraphViewState view;
+};
+
+bool SaveAndLoadOnce(
+    const graph::GraphDocument& graph,
+    const editor::GraphViewState& view,
+    LoadedGraphState& loadedState
+)
+{
+    const std::filesystem::path path = MakeTempPath();
+    std::filesystem::remove(path);
+
+    std::string errorMessage;
+    if (!graph::SaveGraphToFile(graph, view, path.string(), &errorMessage))
+    {
+        std::cerr << "Graph serializer roundtrip failed to save: " << errorMessage << "\n";
+        return false;
+    }
+
+    if (!graph::LoadGraphFromFile(loadedState.graph, loadedState.view, path.string(), &errorMessage))
+    {
+        std::cerr << "Graph serializer roundtrip failed to load: " << errorMessage << "\n";
+        return false;
+    }
+
+    std::filesystem::remove(path);
+    return true;
+}
+
+bool RunPrimaryRoundTripCase()
 {
     graph::GraphDocument graph = graph::CreateSampleFactoryGraph();
     editor::GraphViewState view = editor::CreateSampleFactoryGraphView(graph);
@@ -209,27 +242,66 @@ int RunGraphSerializerRoundTripTest()
         it->second.selected = true;
     }
 
-    const std::filesystem::path path = MakeTempPath();
-    std::filesystem::remove(path);
-
-    std::string errorMessage;
-    if (!graph::SaveGraphToFile(graph, view, path.string(), &errorMessage))
+    LoadedGraphState loadedState;
+    if (!SaveAndLoadOnce(graph, view, loadedState))
     {
-        std::cerr << "Graph serializer roundtrip failed to save: " << errorMessage << "\n";
-        return 1;
+        return false;
     }
 
-    graph::GraphDocument loadedGraph;
-    editor::GraphViewState loadedView;
-    if (!graph::LoadGraphFromFile(loadedGraph, loadedView, path.string(), &errorMessage))
+    return CheckGraph(loadedState.graph, graph) && CheckView(loadedState.view, view);
+}
+
+bool RunGraphViewCameraPersistenceCase()
+{
+    graph::GraphDocument graph = graph::CreateSampleFactoryGraph();
+    editor::GraphViewState view = editor::CreateSampleFactoryGraphView(graph);
+
+    view.cameraOffset = {-512.25f, 384.75f};
+    view.zoom = 0.625f;
+    view.selectedNodeId = -1;
+    view.selectedEdgeId = graph.edges.empty() ? -1 : graph.edges.front().id;
+
+    view.hoveredNodeId = 5;
+    view.draggingNodeId = 6;
+    view.hoveredEdgeId = view.selectedEdgeId;
+    view.hoveredPortNodeId = 3;
+    view.hoveredPortId = 5;
+    view.draggingWire = true;
+    view.wireStartNodeId = 3;
+    view.wireStartPortId = 6;
+    view.lastWireDropFailure = editor::WireDropFailureReason::ResourceMismatch;
+    view.panningCanvas = true;
+    view.wirePreviewCanvasPosition = {999.0f, -333.0f};
+    view.dragStartCanvasPosition = {444.0f, 555.0f};
+    view.dragStartNodePosition = {111.0f, 222.0f};
+    view.panStartMousePosition = {77.0f, 88.0f};
+    view.panStartCameraOffset = {-12.0f, 34.0f};
+
+    for (auto& [nodeId, visual] : view.nodeVisuals)
     {
-        std::cerr << "Graph serializer roundtrip failed to load: " << errorMessage << "\n";
-        return 1;
+        visual.position.x += static_cast<float>(nodeId) * 3.0f;
+        visual.position.y -= static_cast<float>(nodeId) * 2.0f;
+        visual.selected = false;
     }
 
-    std::filesystem::remove(path);
+    LoadedGraphState loadedState;
+    if (!SaveAndLoadOnce(graph, view, loadedState))
+    {
+        return false;
+    }
 
-    if (!CheckGraph(loadedGraph, graph) || !CheckView(loadedView, view))
+    return
+        CheckGraph(loadedState.graph, graph) &&
+        CheckView(loadedState.view, view) &&
+        CheckVec2(loadedState.view.cameraOffset, {-512.25f, 384.75f}, "explicit camera persistence mismatch") &&
+        Check(NearlyEqual(loadedState.view.zoom, 0.625f), "explicit zoom persistence mismatch") &&
+        Check(loadedState.view.selectedNodeId == -1, "edge selection case should not restore node selection") &&
+        Check(loadedState.view.selectedEdgeId == view.selectedEdgeId, "edge selection case should restore selected edge");
+}
+
+int RunGraphSerializerRoundTripTest()
+{
+    if (!RunPrimaryRoundTripCase() || !RunGraphViewCameraPersistenceCase())
     {
         return 1;
     }
