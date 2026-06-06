@@ -382,6 +382,30 @@ const char* NodeTypeLabel(graph::NodeType type)
     return "MACHINE";
 }
 
+const char* ResourceTypeLabel(graph::ResourceType resource)
+{
+    switch (resource)
+    {
+        case graph::ResourceType::IronOre: return "IRON ORE";
+        case graph::ResourceType::CrushedOre: return "CRUSHED ORE";
+        case graph::ResourceType::WashedOre: return "WASHED ORE";
+        case graph::ResourceType::Slurry: return "SLURRY";
+        case graph::ResourceType::Tailings: return "TAILINGS";
+        case graph::ResourceType::IronIngot: return "IRON INGOT";
+        case graph::ResourceType::CopperOre: return "COPPER ORE";
+        case graph::ResourceType::CopperCathode: return "COPPER CATHODE";
+        case graph::ResourceType::Coal: return "COAL";
+        case graph::ResourceType::ScrapMetal: return "SCRAP METAL";
+        case graph::ResourceType::Stone: return "STONE";
+        case graph::ResourceType::Concrete: return "CONCRETE";
+        case graph::ResourceType::Waste: return "WASTE";
+        case graph::ResourceType::Power: return "POWER";
+        case graph::ResourceType::Water: return "WATER";
+    }
+
+    return "RESOURCE";
+}
+
 std::string FormatWhole(float value)
 {
     char buffer[32]{};
@@ -422,6 +446,29 @@ const graph::NodeEvalResult* FindNodeEval(const graph::SimulationResult& simulat
     );
 
     return it == simulation.nodes.end() ? nullptr : &(*it);
+}
+
+const graph::GraphEdge* FindEdge(const graph::GraphDocument& graph, int edgeId)
+{
+    const auto it = std::find_if(
+        graph.edges.begin(),
+        graph.edges.end(),
+        [edgeId](const graph::GraphEdge& edge) {
+            return edge.id == edgeId;
+        }
+    );
+
+    return it == graph.edges.end() ? nullptr : &(*it);
+}
+
+std::string NodeNameOrMissing(const graph::GraphNode* node)
+{
+    return node == nullptr ? std::string("MISSING NODE") : node->name;
+}
+
+std::string PortNameOrMissing(const graph::GraphPort* port)
+{
+    return port == nullptr ? std::string("MISSING PORT") : port->name;
 }
 
 void DrawColumnFrame(
@@ -515,7 +562,56 @@ void DrawSelectedNodeInspector(
     }
 
     const graph::GraphNode* selectedNode = graph::FindNode(graph, view.selectedNodeId);
+    const graph::GraphEdge* selectedEdge = FindEdge(graph, view.selectedEdgeId);
     const graph::NodeEvalResult* nodeEval = selectedNode == nullptr ? nullptr : FindNodeEval(simulation, selectedNode->id);
+
+    if (selectedNode == nullptr && selectedEdge != nullptr)
+    {
+        const graph::GraphNode* fromNode = graph::FindNode(graph, selectedEdge->fromNodeId);
+        const graph::GraphNode* toNode = graph::FindNode(graph, selectedEdge->toNodeId);
+        const graph::GraphPort* fromPort = graph::FindPort(graph, selectedEdge->fromNodeId, selectedEdge->fromPortId);
+        const graph::GraphPort* toPort = graph::FindPort(graph, selectedEdge->toNodeId, selectedEdge->toPortId);
+
+        const bool directionValid =
+            fromPort != nullptr &&
+            toPort != nullptr &&
+            fromPort->direction == graph::PortDirection::Output &&
+            toPort->direction == graph::PortDirection::Input;
+        const bool resourceValid =
+            fromPort != nullptr &&
+            toPort != nullptr &&
+            fromPort->resource == toPort->resource;
+        const bool edgeValid = fromNode != nullptr && toNode != nullptr && directionValid && resourceValid;
+        const Color statusColor = edgeValid ? theme.accentGreen : theme.accentRed;
+        const Color resourceColor = resourceValid ? theme.accentCyan : theme.accentAmber;
+
+        DrawColumnFrame(renderer, columns[0], theme, "SELECTED LINK", theme.accentCyan, true);
+        DrawColumnFrame(renderer, columns[1], theme, "FROM", theme.panelHighlight, false);
+        DrawColumnFrame(renderer, columns[2], theme, "TO", theme.panelHighlight, false);
+        DrawColumnFrame(renderer, columns[3], theme, "RESOURCE", resourceColor, false);
+
+        renderer.DrawText({columns[0].x + 12.0f, columns[0].y + 36.0f}, FormatId(selectedEdge->id), theme.textPrimary);
+        DrawLabelValue(renderer, {columns[0].x + 12.0f, columns[0].y + 58.0f}, "STATUS", edgeValid ? "VALID" : "BROKEN", theme, statusColor);
+        DrawLabelValue(renderer, {columns[0].x + 12.0f, columns[0].y + 76.0f}, "DIRECTION", directionValid ? "OUTPUT > INPUT" : "INVALID", theme, directionValid ? theme.textPrimary : theme.accentRed);
+        DrawProgressBar(renderer, {columns[0].x + 12.0f, columns[0].y + columns[0].h - 24.0f, columns[0].w - 24.0f, 8.0f}, theme, edgeValid ? 1.0f : 0.35f, statusColor);
+
+        renderer.DrawText({columns[1].x + 12.0f, columns[1].y + 36.0f}, NodeNameOrMissing(fromNode), fromNode == nullptr ? theme.accentRed : theme.textPrimary);
+        renderer.DrawText({columns[1].x + 12.0f, columns[1].y + 56.0f}, FormatId(selectedEdge->fromNodeId), theme.textMuted);
+        renderer.DrawText({columns[1].x + 12.0f, columns[1].y + 78.0f}, PortNameOrMissing(fromPort), fromPort == nullptr ? theme.accentRed : theme.textSecondary);
+        renderer.DrawText({columns[1].x + 12.0f, columns[1].y + 98.0f}, FormatId(selectedEdge->fromPortId), theme.textMuted);
+
+        renderer.DrawText({columns[2].x + 12.0f, columns[2].y + 36.0f}, NodeNameOrMissing(toNode), toNode == nullptr ? theme.accentRed : theme.textPrimary);
+        renderer.DrawText({columns[2].x + 12.0f, columns[2].y + 56.0f}, FormatId(selectedEdge->toNodeId), theme.textMuted);
+        renderer.DrawText({columns[2].x + 12.0f, columns[2].y + 78.0f}, PortNameOrMissing(toPort), toPort == nullptr ? theme.accentRed : theme.textSecondary);
+        renderer.DrawText({columns[2].x + 12.0f, columns[2].y + 98.0f}, FormatId(selectedEdge->toPortId), theme.textMuted);
+
+        const char* resourceLabel = fromPort == nullptr ? "UNKNOWN" : ResourceTypeLabel(fromPort->resource);
+        renderer.DrawText({columns[3].x + 12.0f, columns[3].y + 36.0f}, resourceLabel, resourceColor);
+        DrawLabelValue(renderer, {columns[3].x + 12.0f, columns[3].y + 58.0f}, "MATCH", resourceValid ? "YES" : "NO", theme, resourceValid ? theme.accentGreen : theme.accentRed);
+        renderer.DrawText({columns[3].x + 12.0f, columns[3].y + 82.0f}, "DELETE REMOVES THIS LINK", theme.textMuted);
+        renderer.DrawText({columns[3].x + 12.0f, columns[3].y + 102.0f}, "NODE DATA IS UNCHANGED", theme.textMuted);
+        return;
+    }
 
     DrawColumnFrame(renderer, columns[0], theme, "SELECTED NODE", theme.accentCyan, true);
     DrawColumnFrame(renderer, columns[1], theme, "METRICS", theme.panelHighlight, false);
@@ -524,9 +620,9 @@ void DrawSelectedNodeInspector(
 
     if (selectedNode == nullptr)
     {
-        renderer.DrawText({columns[0].x + 12.0f, columns[0].y + 38.0f}, "NO NODE SELECTED", theme.textMuted);
-        renderer.DrawText({columns[0].x + 12.0f, columns[0].y + 58.0f}, "CLICK A NODE", theme.textMuted);
-        renderer.DrawText({columns[1].x + 12.0f, columns[1].y + 38.0f}, "SELECT A NODE TO VIEW DETAILS", theme.textMuted);
+        renderer.DrawText({columns[0].x + 12.0f, columns[0].y + 38.0f}, "NO SELECTION", theme.textMuted);
+        renderer.DrawText({columns[0].x + 12.0f, columns[0].y + 58.0f}, "CLICK A NODE OR LINK", theme.textMuted);
+        renderer.DrawText({columns[1].x + 12.0f, columns[1].y + 38.0f}, "SELECT AN ITEM TO VIEW DETAILS", theme.textMuted);
         renderer.DrawText({columns[2].x + 12.0f, columns[2].y + 38.0f}, "NONE", theme.textMuted);
         renderer.DrawText({columns[3].x + 12.0f, columns[3].y + 38.0f}, "NONE", theme.textMuted);
         return;
