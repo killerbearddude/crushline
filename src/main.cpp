@@ -9,6 +9,7 @@
 
 int RunGraphSerializerRoundTripTest();
 int RunGraphEvaluatorTest();
+int RunGraphConnectionTest();
 
 namespace
 {
@@ -30,6 +31,7 @@ void PrintUsage(const char* executable)
         << "  --smoke-test       Run a short startup/render loop and exit.\n"
         << "  --serializer-roundtrip-test  Verify graph JSON save/load roundtrip.\n"
         << "  --graph-evaluator-test       Verify graph simulation metrics.\n"
+        << "  --graph-connection-test      Verify graph connection validation rules.\n"
         << "  --frames <count>   Run for a fixed positive number of frames.\n"
         << "  --help, -h         Show this help text.\n";
 }
@@ -64,6 +66,11 @@ int main(int argc, char** argv)
         if (arg == "--graph-evaluator-test")
         {
             return RunGraphEvaluatorTest();
+        }
+
+        if (arg == "--graph-connection-test")
+        {
+            return RunGraphConnectionTest();
         }
 
         if (arg == "--frames")
