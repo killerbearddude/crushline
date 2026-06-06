@@ -27,9 +27,11 @@ find_package(OpenGL REQUIRED)
 add_executable(crushline
     src/main.cpp
     src/app/App.cpp
+    src/app/DashboardLayout.cpp
     src/platform/Window.cpp
     src/platform/Time.cpp
     src/renderer/Renderer2D.cpp
+    src/ui/Theme.cpp
 )
 
 target_include_directories(crushline PRIVATE src)

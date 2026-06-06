@@ -2,8 +2,119 @@
 
 #include "platform/Time.h"
 
-
 #include <iostream>
+
+namespace
+{
+void DrawPanel(Renderer2D& renderer, Rect rect, const UiTheme& theme, Color fill)
+{
+    renderer.DrawRect(rect, fill);
+    renderer.DrawRect(TopSlice(rect, 28.0f), theme.panelHeader);
+    renderer.DrawRectOutline(rect, theme.panelBorder, theme.borderThickness);
+}
+
+void DrawGrid(Renderer2D& renderer, Rect rect, const UiTheme& theme)
+{
+    const float spacing = theme.gridSpacing;
+    const float majorSpacing = spacing * 4.0f;
+
+    for (float x = rect.x; x <= rect.x + rect.w; x += spacing)
+    {
+        const int column = static_cast<int>((x - rect.x) / spacing);
+        const bool major = (column % 4) == 0;
+        renderer.DrawLine({x, rect.y}, {x, rect.y + rect.h}, major ? theme.gridMajor : theme.gridMinor, 1.0f);
+    }
+
+    for (float y = rect.y; y <= rect.y + rect.h; y += spacing)
+    {
+        const int row = static_cast<int>((y - rect.y) / spacing);
+        const bool major = (row % 4) == 0;
+        renderer.DrawLine({rect.x, y}, {rect.x + rect.w, y}, major ? theme.gridMajor : theme.gridMinor, 1.0f);
+    }
+
+    renderer.DrawRectOutline(rect, theme.gridMajor, 1.0f);
+    renderer.DrawLine({rect.x, rect.y}, {rect.x + majorSpacing, rect.y}, theme.gridMajor, 1.0f);
+}
+
+void DrawMetricRows(Renderer2D& renderer, Rect panel, const UiTheme& theme, int rows)
+{
+    const Rect content = InsetRect(panel, theme.panelPadding);
+    const float rowHeight = 28.0f;
+    const float startY = panel.y + 44.0f;
+
+    for (int i = 0; i < rows; ++i)
+    {
+        const float y = startY + static_cast<float>(i) * (rowHeight + 6.0f);
+        const Rect row = {content.x, y, content.w, rowHeight};
+        const Color rowColor = (i % 2) == 0 ? theme.panelAlt : theme.panel;
+
+        renderer.DrawRect(row, rowColor);
+        renderer.DrawRectOutline(row, theme.panelBorder, 1.0f);
+        renderer.DrawRect({row.x + 8.0f, row.y + 8.0f, 12.0f, 12.0f}, theme.panelHighlight);
+        renderer.DrawLine(
+            {row.x + row.w * 0.55f, row.y + row.h - 7.0f},
+            {row.x + row.w - 10.0f, row.y + row.h - 7.0f},
+            i == rows - 1 ? theme.accentAmber : theme.accentCyan,
+            2.0f
+        );
+    }
+}
+
+void DrawStatusChips(Renderer2D& renderer, Rect topBar, const UiTheme& theme)
+{
+    const float chipY = topBar.y + 14.0f;
+    const float chipH = 28.0f;
+    const float chipW = 150.0f;
+    float x = topBar.x + 250.0f;
+
+    const Color fills[] = {
+        theme.panel,
+        theme.panel,
+        theme.panel,
+        theme.panel,
+        theme.panel
+    };
+
+    const Color accents[] = {
+        theme.accentCyan,
+        theme.accentAmber,
+        theme.accentRed,
+        theme.accentCyan,
+        theme.accentGreen
+    };
+
+    for (int i = 0; i < 5; ++i)
+    {
+        const Rect chip = {x, chipY, chipW, chipH};
+        renderer.DrawRect(chip, fills[i]);
+        renderer.DrawRectOutline(chip, theme.panelBorder, 1.0f);
+        renderer.DrawRect({chip.x + 10.0f, chip.y + 8.0f, 4.0f, 12.0f}, accents[i]);
+        x += chipW + 10.0f;
+    }
+}
+
+void DrawInspectorBands(Renderer2D& renderer, Rect inspector, const UiTheme& theme)
+{
+    const Rect content = InsetRect(inspector, theme.panelPadding);
+    const float columnGap = 12.0f;
+    const float columnW = (content.w - columnGap * 3.0f) / 4.0f;
+    const float y = inspector.y + 44.0f;
+    const float h = inspector.h - 58.0f;
+
+    for (int i = 0; i < 4; ++i)
+    {
+        const Rect column = {content.x + static_cast<float>(i) * (columnW + columnGap), y, columnW, h};
+        renderer.DrawRect(column, i == 0 ? theme.panelAlt : theme.panel);
+        renderer.DrawRectOutline(column, theme.panelBorder, 1.0f);
+        renderer.DrawLine(
+            {column.x + 10.0f, column.y + 24.0f},
+            {column.x + column.w - 10.0f, column.y + 24.0f},
+            i == 0 ? theme.accentCyan : theme.panelHighlight,
+            2.0f
+        );
+    }
+}
+}
 
 bool App::Initialize(const AppConfig& config)
 {
@@ -52,51 +163,36 @@ void App::RunFrame()
         m_shouldClose = true;
     }
 
-    const Color background = {0.035f, 0.038f, 0.042f, 1.0f};
-    const Color panel = {0.070f, 0.075f, 0.080f, 1.0f};
-    const Color panelAlt = {0.095f, 0.100f, 0.105f, 1.0f};
-    const Color border = {0.190f, 0.205f, 0.215f, 1.0f};
-    const Color accent = {0.100f, 0.720f, 0.740f, 1.0f};
+    m_renderer.BeginFrame(m_window.Width(), m_window.Height(), m_theme.background);
 
-    m_renderer.BeginFrame(m_window.Width(), m_window.Height(), background);
+    const DashboardRegions regions = ComputeDashboardLayout(
+        m_window.Width(),
+        m_window.Height(),
+        m_layoutMetrics
+    );
 
-    const float width = static_cast<float>(m_window.Width());
-    const float height = static_cast<float>(m_window.Height());
-    const float topBarHeight = 56.0f;
-    const float sideWidth = 220.0f;
-    const float inspectorHeight = 148.0f;
-    const float eventLogHeight = 44.0f;
-    const float gap = 8.0f;
+    DrawPanel(m_renderer, regions.topBar, m_theme, m_theme.panelAlt);
+    DrawPanel(m_renderer, regions.leftPanel, m_theme, m_theme.panel);
+    m_renderer.DrawRect(regions.graphCanvas, m_theme.canvas);
+    DrawGrid(m_renderer, regions.graphCanvas, m_theme);
+    m_renderer.DrawRectOutline(regions.graphCanvas, m_theme.panelBorder, m_theme.borderThickness);
+    DrawPanel(m_renderer, regions.rightPanel, m_theme, m_theme.panel);
+    DrawPanel(m_renderer, regions.inspector, m_theme, m_theme.panel);
+    DrawPanel(m_renderer, regions.eventLog, m_theme, m_theme.panelAlt);
 
-    const Rect topBar = {0.0f, 0.0f, width, topBarHeight};
-    const Rect leftPanel = {gap, topBarHeight + gap, sideWidth, height - topBarHeight - inspectorHeight - eventLogHeight - gap * 4.0f};
-    const Rect rightPanel = {width - sideWidth - gap, topBarHeight + gap, sideWidth, leftPanel.h};
-    const Rect graphPanel = {sideWidth + gap * 2.0f, topBarHeight + gap, width - sideWidth * 2.0f - gap * 4.0f, leftPanel.h};
-    const Rect inspector = {gap, topBarHeight + gap * 2.0f + leftPanel.h, width - gap * 2.0f, inspectorHeight};
-    const Rect eventLog = {gap, height - eventLogHeight - gap, width - gap * 2.0f, eventLogHeight};
-
-    m_renderer.DrawRect(topBar, panelAlt);
-    m_renderer.DrawRect(leftPanel, panel);
-    m_renderer.DrawRect(graphPanel, background);
-    m_renderer.DrawRect(rightPanel, panel);
-    m_renderer.DrawRect(inspector, panel);
-    m_renderer.DrawRect(eventLog, panelAlt);
-
-    m_renderer.DrawRectOutline(topBar, border, 1.0f);
-    m_renderer.DrawRectOutline(leftPanel, border, 1.0f);
-    m_renderer.DrawRectOutline(graphPanel, border, 1.0f);
-    m_renderer.DrawRectOutline(rightPanel, border, 1.0f);
-    m_renderer.DrawRectOutline(inspector, border, 1.0f);
-    m_renderer.DrawRectOutline(eventLog, border, 1.0f);
+    DrawStatusChips(m_renderer, regions.topBar, m_theme);
+    DrawMetricRows(m_renderer, regions.leftPanel, m_theme, 8);
+    DrawMetricRows(m_renderer, regions.rightPanel, m_theme, 7);
+    DrawInspectorBands(m_renderer, regions.inspector, m_theme);
 
     m_renderer.DrawLine(
-        {graphPanel.x + 24.0f, graphPanel.y + 24.0f},
-        {graphPanel.x + graphPanel.w - 24.0f, graphPanel.y + graphPanel.h - 24.0f},
-        accent,
+        {regions.graphCanvas.x + 24.0f, regions.graphCanvas.y + 24.0f},
+        {regions.graphCanvas.x + regions.graphCanvas.w - 24.0f, regions.graphCanvas.y + regions.graphCanvas.h - 24.0f},
+        m_theme.accentCyan,
         2.0f
     );
-    m_renderer.DrawCircle({graphPanel.x + 24.0f, graphPanel.y + 24.0f}, 5.0f, accent);
-    m_renderer.DrawCircle({graphPanel.x + graphPanel.w - 24.0f, graphPanel.y + graphPanel.h - 24.0f}, 5.0f, accent);
+    m_renderer.DrawCircle({regions.graphCanvas.x + 24.0f, regions.graphCanvas.y + 24.0f}, 5.0f, m_theme.accentCyan);
+    m_renderer.DrawCircle({regions.graphCanvas.x + regions.graphCanvas.w - 24.0f, regions.graphCanvas.y + regions.graphCanvas.h - 24.0f}, 5.0f, m_theme.accentCyan);
 
     const std::size_t drawCommandCount = m_renderer.CommandCount();
     m_renderer.Flush();

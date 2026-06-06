@@ -1,8 +1,10 @@
 #pragma once
 
+#include "app/DashboardLayout.h"
 #include "platform/Input.h"
 #include "platform/Window.h"
 #include "renderer/Renderer2D.h"
+#include "ui/Theme.h"
 
 struct AppConfig
 {
@@ -28,6 +30,8 @@ public:
 
 private:
     AppConfig m_config;
+    DashboardLayoutMetrics m_layoutMetrics;
+    UiTheme m_theme = MakeIndustrialDarkTheme();
 
     Window m_window;
     InputState m_input;
