@@ -19,6 +19,66 @@ namespace
 {
 constexpr const char* CurrentGraphPath = "data/current_graph.json";
 
+std::string GraphSummary(std::size_t nodeCount, std::size_t edgeCount)
+{
+    return std::to_string(nodeCount) + " nodes / " + std::to_string(edgeCount) + " links";
+}
+
+std::string GraphSummary(const graph::GraphDocument& graph)
+{
+    return GraphSummary(graph.nodes.size(), graph.edges.size());
+}
+
+void QueueGraphMutationEvents(
+    std::vector<std::string>& events,
+    std::size_t previousNodeCount,
+    std::size_t previousEdgeCount,
+    const graph::GraphDocument& graph
+)
+{
+    const std::size_t nodeCount = graph.nodes.size();
+    const std::size_t edgeCount = graph.edges.size();
+    const std::string summary = GraphSummary(nodeCount, edgeCount);
+
+    if (nodeCount < previousNodeCount)
+    {
+        const std::size_t removed = previousNodeCount - nodeCount;
+        events.push_back(
+            removed == 1
+                ? "Node removed: " + summary
+                : "Nodes removed: " + std::to_string(removed) + " / " + summary
+        );
+    }
+    else if (nodeCount > previousNodeCount)
+    {
+        const std::size_t added = nodeCount - previousNodeCount;
+        events.push_back(
+            added == 1
+                ? "Node added: " + summary
+                : "Nodes added: " + std::to_string(added) + " / " + summary
+        );
+    }
+
+    if (edgeCount < previousEdgeCount)
+    {
+        const std::size_t removed = previousEdgeCount - edgeCount;
+        events.push_back(
+            removed == 1
+                ? "Link removed: " + summary
+                : "Links removed: " + std::to_string(removed) + " / " + summary
+        );
+    }
+    else if (edgeCount > previousEdgeCount)
+    {
+        const std::size_t added = edgeCount - previousEdgeCount;
+        events.push_back(
+            added == 1
+                ? "Link created: " + summary
+                : "Links created: " + std::to_string(added) + " / " + summary
+        );
+    }
+}
+
 void DrawPanel(Renderer2D& renderer, Rect rect, const UiTheme& theme, Color fill)
 {
     renderer.DrawRect(rect, fill);
@@ -516,6 +576,8 @@ Color EventAccentColor(const UiTheme& theme, const std::string& message)
     if (message.find("Warning") != std::string::npos ||
         message.find("Warnings") != std::string::npos ||
         message.find("Low") != std::string::npos ||
+        message.find("removed") != std::string::npos ||
+        message.find("Removed") != std::string::npos ||
         message.find("bottleneck") != std::string::npos ||
         message.find("clogged") != std::string::npos)
     {
@@ -525,7 +587,9 @@ Color EventAccentColor(const UiTheme& theme, const std::string& message)
     if (message.find("saved") != std::string::npos ||
         message.find("loaded") != std::string::npos ||
         message.find("reset") != std::string::npos ||
-        message.find("ready") != std::string::npos)
+        message.find("ready") != std::string::npos ||
+        message.find("created") != std::string::npos ||
+        message.find("added") != std::string::npos)
     {
         return theme.accentGreen;
     }
@@ -735,12 +799,14 @@ void App::RunFrame()
         m_shouldClose = true;
     }
 
+    std::vector<std::string> dashboardEvents;
+
     if (m_input.keyCtrlDown && m_input.keyRPressed)
     {
         m_graph = graph::CreateSampleFactoryGraph();
         m_graphView = editor::CreateSampleFactoryGraphView(m_graph);
         MarkGraphDirty();
-        AddEvent("Sample graph reset");
+        dashboardEvents.push_back("Sample graph reset: " + GraphSummary(m_graph));
         std::cout << "Sample factory graph reset.\n";
     }
 
@@ -749,12 +815,12 @@ void App::RunFrame()
         std::string errorMessage;
         if (graph::SaveGraphToFile(m_graph, m_graphView, CurrentGraphPath, &errorMessage))
         {
-            AddEvent("Graph saved");
+            dashboardEvents.push_back("Graph saved: " + GraphSummary(m_graph));
             std::cout << "Graph saved to " << CurrentGraphPath << ".\n";
         }
         else
         {
-            AddEvent("Graph save failed");
+            dashboardEvents.push_back("Graph save failed: current_graph.json");
             std::cerr << "Graph save failed: " << errorMessage << "\n";
         }
     }
@@ -765,12 +831,12 @@ void App::RunFrame()
         if (graph::LoadGraphFromFile(m_graph, m_graphView, CurrentGraphPath, &errorMessage))
         {
             MarkGraphDirty();
-            AddEvent("Graph loaded");
+            dashboardEvents.push_back("Graph loaded: " + GraphSummary(m_graph));
             std::cout << "Graph loaded from " << CurrentGraphPath << ".\n";
         }
         else
         {
-            AddEvent("Graph load failed");
+            dashboardEvents.push_back("Graph load failed: current_graph.json");
             std::cerr << "Graph load failed: " << errorMessage << "\n";
         }
     }
@@ -782,13 +848,22 @@ void App::RunFrame()
     );
 
     editor::EnsureNodeVisuals(m_graphView, m_graph);
+    const std::size_t previousNodeCount = m_graph.nodes.size();
+    const std::size_t previousEdgeCount = m_graph.edges.size();
+
     if (editor::UpdateGraphViewInteraction(m_graphView, m_graph, m_input, regions.graphCanvas))
     {
         MarkGraphDirty();
+        QueueGraphMutationEvents(dashboardEvents, previousNodeCount, previousEdgeCount, m_graph);
     }
 
     EvaluateGraphIfDirty();
     UpdateEventLogFromSimulation();
+
+    for (auto it = dashboardEvents.rbegin(); it != dashboardEvents.rend(); ++it)
+    {
+        AddEvent(*it);
+    }
 
     m_renderer.BeginFrame(m_window.Width(), m_window.Height(), m_theme.background);
 
