@@ -8,6 +8,7 @@
 #include <system_error>
 
 int RunGraphSerializerRoundTripTest();
+int RunGraphEvaluatorTest();
 
 namespace
 {
@@ -28,6 +29,7 @@ void PrintUsage(const char* executable)
         << "Options:\n"
         << "  --smoke-test       Run a short startup/render loop and exit.\n"
         << "  --serializer-roundtrip-test  Verify graph JSON save/load roundtrip.\n"
+        << "  --graph-evaluator-test       Verify graph simulation metrics.\n"
         << "  --frames <count>   Run for a fixed positive number of frames.\n"
         << "  --help, -h         Show this help text.\n";
 }
@@ -57,6 +59,11 @@ int main(int argc, char** argv)
         if (arg == "--serializer-roundtrip-test")
         {
             return RunGraphSerializerRoundTripTest();
+        }
+
+        if (arg == "--graph-evaluator-test")
+        {
+            return RunGraphEvaluatorTest();
         }
 
         if (arg == "--frames")
