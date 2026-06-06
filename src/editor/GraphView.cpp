@@ -9,8 +9,19 @@
 
 namespace editor
 {
-namespace
+Vec2 ScreenToCanvas(Vec2 screen, const GraphViewState& view, Rect canvasRect)
 {
+    const Vec2 local = {
+        screen.x - canvasRect.x,
+        screen.y - canvasRect.y
+    };
+
+    return {
+        (local.x - view.cameraOffset.x) / view.zoom,
+        (local.y - view.cameraOffset.y) / view.zoom
+    };
+}
+
 Vec2 CanvasToScreen(Vec2 canvas, const GraphViewState& view, Rect canvasRect)
 {
     return {
@@ -29,6 +40,9 @@ Rect CanvasToScreen(Rect rect, const GraphViewState& view, Rect canvasRect)
         rect.h * view.zoom
     };
 }
+
+namespace
+{
 
 Color ResourceColor(graph::ResourceType resource, const UiTheme& theme)
 {
@@ -73,6 +87,24 @@ Color NodeAccent(const graph::GraphNode& node, const UiTheme& theme)
             return theme.accentRed;
         default:
             return theme.accentCyan;
+    }
+}
+
+Rect NodeRect(const NodeVisual& visual)
+{
+    return {
+        visual.position.x,
+        visual.position.y,
+        visual.size.x,
+        visual.size.y
+    };
+}
+
+void SyncSelectedNodeVisuals(GraphViewState& view)
+{
+    for (auto& [nodeId, visual] : view.nodeVisuals)
+    {
+        visual.selected = nodeId == view.selectedNodeId;
     }
 }
 
@@ -155,10 +187,26 @@ void DrawNode(Renderer2D& renderer, const graph::GraphNode& node, const NodeVisu
     const Rect header = {nodeRect.x, nodeRect.y, nodeRect.w, 24.0f * view.zoom};
     const Color accent = NodeAccent(node, theme);
 
-    renderer.DrawRect(nodeRect, theme.nodeBody);
+    const bool hovered = view.hoveredNodeId == node.id;
+    const Color borderColor = visual.selected
+        ? theme.nodeSelected
+        : hovered ? theme.accentCyan : theme.nodeBorder;
+    const float borderThickness = visual.selected ? 2.0f : hovered ? 1.5f : 1.0f;
+
+    renderer.DrawRect(nodeRect, hovered ? theme.panelAlt : theme.nodeBody);
     renderer.DrawRect(header, theme.nodeHeader);
-    renderer.DrawRectOutline(nodeRect, visual.selected ? theme.nodeSelected : theme.nodeBorder, visual.selected ? 2.0f : 1.0f);
+    renderer.DrawRectOutline(nodeRect, borderColor, borderThickness);
     renderer.DrawRect({nodeRect.x + 8.0f, nodeRect.y + 8.0f, 4.0f, 9.0f}, accent);
+
+    if (hovered && !visual.selected)
+    {
+        renderer.DrawLine(
+            {nodeRect.x + 10.0f, nodeRect.y + nodeRect.h - 6.0f},
+            {nodeRect.x + nodeRect.w - 10.0f, nodeRect.y + nodeRect.h - 6.0f},
+            theme.accentCyan,
+            1.0f
+        );
+    }
 
     const float fill = node.capacity > 0.0f ? std::min(node.throughput / node.capacity, 1.0f) : node.efficiency;
     const Rect barTrack = {nodeRect.x + 12.0f, nodeRect.y + nodeRect.h - 12.0f, nodeRect.w - 24.0f, 3.0f};
@@ -239,6 +287,56 @@ void EnsureNodeVisuals(GraphViewState& view, const graph::GraphDocument& graph)
             };
         }
     }
+}
+
+int HitTestNode(
+    const graph::GraphDocument& graph,
+    const GraphViewState& view,
+    Vec2 canvasPosition
+)
+{
+    for (auto it = graph.nodes.rbegin(); it != graph.nodes.rend(); ++it)
+    {
+        const graph::GraphNode& node = *it;
+        const auto visualIt = view.nodeVisuals.find(node.id);
+
+        if (visualIt == view.nodeVisuals.end())
+        {
+            continue;
+        }
+
+        if (NodeRect(visualIt->second).Contains(canvasPosition))
+        {
+            return node.id;
+        }
+    }
+
+    return -1;
+}
+
+void UpdateGraphViewInteraction(
+    GraphViewState& view,
+    const graph::GraphDocument& graph,
+    const InputState& input,
+    Rect canvasRect
+)
+{
+    if (!canvasRect.Contains(input.mousePosition))
+    {
+        view.hoveredNodeId = -1;
+        SyncSelectedNodeVisuals(view);
+        return;
+    }
+
+    const Vec2 canvasMouse = ScreenToCanvas(input.mousePosition, view, canvasRect);
+    view.hoveredNodeId = HitTestNode(graph, view, canvasMouse);
+
+    if (input.leftMousePressed)
+    {
+        view.selectedNodeId = view.hoveredNodeId;
+    }
+
+    SyncSelectedNodeVisuals(view);
 }
 
 void DrawGraphView(

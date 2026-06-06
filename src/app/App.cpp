@@ -190,6 +190,7 @@ void App::RunFrame()
     DrawInspectorBands(m_renderer, regions.inspector, m_theme);
 
     editor::EnsureNodeVisuals(m_graphView, m_graph);
+    editor::UpdateGraphViewInteraction(m_graphView, m_graph, m_input, regions.graphCanvas);
     editor::DrawGraphView(m_renderer, m_graph, m_graphView, regions.graphCanvas, m_theme);
 
     const std::size_t drawCommandCount = m_renderer.CommandCount();
@@ -203,6 +204,8 @@ void App::RunFrame()
             << " mouse=(" << m_input.mousePosition.x << ", " << m_input.mousePosition.y << ")"
             << " delta=(" << m_input.mouseDelta.x << ", " << m_input.mouseDelta.y << ")"
             << " wheel=" << m_input.mouseWheelDelta
+            << " selectedNode=" << m_graphView.selectedNodeId
+            << " hoveredNode=" << m_graphView.hoveredNodeId
             << " drawCommands=" << drawCommandCount
             << "\n";
     }

@@ -3,6 +3,7 @@
 #include "core/Math.h"
 #include "core/Rect.h"
 #include "graph/GraphTypes.h"
+#include "platform/Input.h"
 #include "ui/Theme.h"
 
 #include <unordered_map>
@@ -34,6 +35,24 @@ struct GraphViewState
 
 GraphViewState CreateSampleFactoryGraphView(const graph::GraphDocument& graph);
 void EnsureNodeVisuals(GraphViewState& view, const graph::GraphDocument& graph);
+
+Vec2 ScreenToCanvas(Vec2 screen, const GraphViewState& view, Rect canvasRect);
+Vec2 CanvasToScreen(Vec2 canvas, const GraphViewState& view, Rect canvasRect);
+Rect CanvasToScreen(Rect rect, const GraphViewState& view, Rect canvasRect);
+
+int HitTestNode(
+    const graph::GraphDocument& graph,
+    const GraphViewState& view,
+    Vec2 canvasPosition
+);
+
+void UpdateGraphViewInteraction(
+    GraphViewState& view,
+    const graph::GraphDocument& graph,
+    const InputState& input,
+    Rect canvasRect
+);
+
 void DrawGraphView(
     Renderer2D& renderer,
     const graph::GraphDocument& graph,
