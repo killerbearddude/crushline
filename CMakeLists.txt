@@ -39,6 +39,7 @@ add_executable(crushline
     src/graph/GraphDocument.cpp
     src/graph/GraphSerializer.cpp
     src/graph/SampleGraph.cpp
+    tests/GraphSerializerRoundTrip.cpp
     src/platform/Window.cpp
     src/platform/Time.cpp
     src/renderer/Renderer2D.cpp
@@ -61,4 +62,5 @@ endif()
 
 if (BUILD_TESTING)
     add_test(NAME crushline_smoke COMMAND crushline --smoke-test)
+    add_test(NAME graph_serializer_roundtrip COMMAND crushline --serializer-roundtrip-test)
 endif()

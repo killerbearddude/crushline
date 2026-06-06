@@ -7,6 +7,8 @@
 #include <string_view>
 #include <system_error>
 
+int RunGraphSerializerRoundTripTest();
+
 namespace
 {
 bool ParsePositiveInt(std::string_view text, int& value)
@@ -25,6 +27,7 @@ void PrintUsage(const char* executable)
         << "\n"
         << "Options:\n"
         << "  --smoke-test       Run a short startup/render loop and exit.\n"
+        << "  --serializer-roundtrip-test  Verify graph JSON save/load roundtrip.\n"
         << "  --frames <count>   Run for a fixed positive number of frames.\n"
         << "  --help, -h         Show this help text.\n";
 }
@@ -49,6 +52,11 @@ int main(int argc, char** argv)
             config.maxFrames = 3;
             config.logEveryNFrames = 1;
             continue;
+        }
+
+        if (arg == "--serializer-roundtrip-test")
+        {
+            return RunGraphSerializerRoundTripTest();
         }
 
         if (arg == "--frames")
