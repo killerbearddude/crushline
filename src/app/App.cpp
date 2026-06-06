@@ -29,13 +29,51 @@ std::string GraphSummary(const graph::GraphDocument& graph)
     return GraphSummary(graph.nodes.size(), graph.edges.size());
 }
 
+const graph::GraphEdge* FindEventEdge(const graph::GraphDocument& graph, int edgeId)
+{
+    const auto it = std::find_if(
+        graph.edges.begin(),
+        graph.edges.end(),
+        [edgeId](const graph::GraphEdge& edge) {
+            return edge.id == edgeId;
+        }
+    );
+
+    return it == graph.edges.end() ? nullptr : &(*it);
+}
+
+std::string NodePortEventLabel(const graph::GraphDocument& graph, int nodeId, int portId)
+{
+    const graph::GraphNode* node = graph::FindNode(graph, nodeId);
+    const graph::GraphPort* port = graph::FindPort(graph, nodeId, portId);
+
+    const std::string nodeLabel = node == nullptr
+        ? "Node " + std::to_string(nodeId)
+        : node->name;
+
+    const std::string portLabel = port == nullptr
+        ? "Port " + std::to_string(portId)
+        : port->name;
+
+    return nodeLabel + "." + portLabel;
+}
+
+std::string LinkEventLabel(const graph::GraphDocument& graph, const graph::GraphEdge& edge)
+{
+    return
+        NodePortEventLabel(graph, edge.fromNodeId, edge.fromPortId) +
+        " -> " +
+        NodePortEventLabel(graph, edge.toNodeId, edge.toPortId);
+}
+
 void QueueGraphMutationEvents(
     std::vector<std::string>& events,
-    std::size_t previousNodeCount,
-    std::size_t previousEdgeCount,
+    const graph::GraphDocument& previousGraph,
     const graph::GraphDocument& graph
 )
 {
+    const std::size_t previousNodeCount = previousGraph.nodes.size();
+    const std::size_t previousEdgeCount = previousGraph.edges.size();
     const std::size_t nodeCount = graph.nodes.size();
     const std::size_t edgeCount = graph.edges.size();
     const std::string summary = GraphSummary(nodeCount, edgeCount);
@@ -62,18 +100,46 @@ void QueueGraphMutationEvents(
     if (edgeCount < previousEdgeCount)
     {
         const std::size_t removed = previousEdgeCount - edgeCount;
+        std::string removedLink;
+
+        if (removed == 1)
+        {
+            for (const graph::GraphEdge& edge : previousGraph.edges)
+            {
+                if (FindEventEdge(graph, edge.id) == nullptr)
+                {
+                    removedLink = LinkEventLabel(previousGraph, edge);
+                    break;
+                }
+            }
+        }
+
         events.push_back(
-            removed == 1
-                ? "Link removed: " + summary
+            removed == 1 && !removedLink.empty()
+                ? "Link removed: " + removedLink
                 : "Links removed: " + std::to_string(removed) + " / " + summary
         );
     }
     else if (edgeCount > previousEdgeCount)
     {
         const std::size_t added = edgeCount - previousEdgeCount;
+        std::string createdLink;
+
+        if (added == 1)
+        {
+            for (const graph::GraphEdge& edge : graph.edges)
+            {
+                if (FindEventEdge(previousGraph, edge.id) == nullptr)
+                {
+                    createdLink = LinkEventLabel(graph, edge);
+                    break;
+                }
+            }
+        }
+
         events.push_back(
-            added == 1
-                ? "Link created: " + summary
+            added == 1 && !createdLink.empty()
+                ? "Link created: " + createdLink
                 : "Links created: " + std::to_string(added) + " / " + summary
         );
     }
@@ -972,13 +1038,12 @@ void App::RunFrame()
     );
 
     editor::EnsureNodeVisuals(m_graphView, m_graph);
-    const std::size_t previousNodeCount = m_graph.nodes.size();
-    const std::size_t previousEdgeCount = m_graph.edges.size();
+    const graph::GraphDocument previousGraph = m_graph;
 
     if (editor::UpdateGraphViewInteraction(m_graphView, m_graph, m_input, regions.graphCanvas))
     {
         MarkGraphDirty();
-        QueueGraphMutationEvents(dashboardEvents, previousNodeCount, previousEdgeCount, m_graph);
+        QueueGraphMutationEvents(dashboardEvents, previousGraph, m_graph);
     }
 
     if (m_graphView.lastWireDropFailure != editor::WireDropFailureReason::None)
