@@ -34,6 +34,10 @@ struct GraphViewState
 
     Vec2 dragStartCanvasPosition{};
     Vec2 dragStartNodePosition{};
+
+    bool panningCanvas = false;
+    Vec2 panStartMousePosition{};
+    Vec2 panStartCameraOffset{};
 };
 
 GraphViewState CreateSampleFactoryGraphView(const graph::GraphDocument& graph);

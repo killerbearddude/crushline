@@ -3,6 +3,7 @@
 #include "platform/Time.h"
 #include "graph/SampleGraph.h"
 
+#include <cmath>
 #include <iostream>
 
 namespace
@@ -14,23 +15,43 @@ void DrawPanel(Renderer2D& renderer, Rect rect, const UiTheme& theme, Color fill
     renderer.DrawRectOutline(rect, theme.panelBorder, theme.borderThickness);
 }
 
-void DrawGrid(Renderer2D& renderer, Rect rect, const UiTheme& theme)
+float GridStart(float origin, float offset, float spacing)
+{
+    float wrapped = std::fmod(offset, spacing);
+
+    if (wrapped < 0.0f)
+    {
+        wrapped += spacing;
+    }
+
+    return origin + wrapped;
+}
+
+void DrawGrid(Renderer2D& renderer, Rect rect, const UiTheme& theme, Vec2 cameraOffset)
 {
     const float spacing = theme.gridSpacing;
     const float majorSpacing = spacing * 4.0f;
+    const float right = rect.x + rect.w;
+    const float bottom = rect.y + rect.h;
 
-    for (float x = rect.x; x <= rect.x + rect.w; x += spacing)
+    for (float x = GridStart(rect.x, cameraOffset.x, spacing); x <= right; x += spacing)
     {
-        const int column = static_cast<int>((x - rect.x) / spacing);
-        const bool major = (column % 4) == 0;
-        renderer.DrawLine({x, rect.y}, {x, rect.y + rect.h}, major ? theme.gridMajor : theme.gridMinor, 1.0f);
+        renderer.DrawLine({x, rect.y}, {x, bottom}, theme.gridMinor, 1.0f);
     }
 
-    for (float y = rect.y; y <= rect.y + rect.h; y += spacing)
+    for (float y = GridStart(rect.y, cameraOffset.y, spacing); y <= bottom; y += spacing)
     {
-        const int row = static_cast<int>((y - rect.y) / spacing);
-        const bool major = (row % 4) == 0;
-        renderer.DrawLine({rect.x, y}, {rect.x + rect.w, y}, major ? theme.gridMajor : theme.gridMinor, 1.0f);
+        renderer.DrawLine({rect.x, y}, {right, y}, theme.gridMinor, 1.0f);
+    }
+
+    for (float x = GridStart(rect.x, cameraOffset.x, majorSpacing); x <= right; x += majorSpacing)
+    {
+        renderer.DrawLine({x, rect.y}, {x, bottom}, theme.gridMajor, 1.0f);
+    }
+
+    for (float y = GridStart(rect.y, cameraOffset.y, majorSpacing); y <= bottom; y += majorSpacing)
+    {
+        renderer.DrawLine({rect.x, y}, {right, y}, theme.gridMajor, 1.0f);
     }
 
     renderer.DrawRectOutline(rect, theme.gridMajor, 1.0f);
@@ -178,7 +199,7 @@ void App::RunFrame()
     DrawPanel(m_renderer, regions.topBar, m_theme, m_theme.panelAlt);
     DrawPanel(m_renderer, regions.leftPanel, m_theme, m_theme.panel);
     m_renderer.DrawRect(regions.graphCanvas, m_theme.canvas);
-    DrawGrid(m_renderer, regions.graphCanvas, m_theme);
+    DrawGrid(m_renderer, regions.graphCanvas, m_theme, m_graphView.cameraOffset);
     m_renderer.DrawRectOutline(regions.graphCanvas, m_theme.panelBorder, m_theme.borderThickness);
     DrawPanel(m_renderer, regions.rightPanel, m_theme, m_theme.panel);
     DrawPanel(m_renderer, regions.inspector, m_theme, m_theme.panel);
@@ -207,6 +228,8 @@ void App::RunFrame()
             << " selectedNode=" << m_graphView.selectedNodeId
             << " hoveredNode=" << m_graphView.hoveredNodeId
             << " draggingNode=" << m_graphView.draggingNodeId
+            << " panning=" << (m_graphView.panningCanvas ? 1 : 0)
+            << " camera=(" << m_graphView.cameraOffset.x << ", " << m_graphView.cameraOffset.y << ")"
             << " drawCommands=" << drawCommandCount
             << "\n";
     }

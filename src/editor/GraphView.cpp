@@ -323,6 +323,28 @@ void UpdateGraphViewInteraction(
 {
     const Vec2 canvasMouse = ScreenToCanvas(input.mousePosition, view, canvasRect);
 
+    if (view.panningCanvas)
+    {
+        if (input.middleMouseDown)
+        {
+            const Vec2 delta = {
+                input.mousePosition.x - view.panStartMousePosition.x,
+                input.mousePosition.y - view.panStartMousePosition.y
+            };
+
+            view.cameraOffset = {
+                view.panStartCameraOffset.x + delta.x,
+                view.panStartCameraOffset.y + delta.y
+            };
+
+            view.hoveredNodeId = -1;
+            SyncSelectedNodeVisuals(view);
+            return;
+        }
+
+        view.panningCanvas = false;
+    }
+
     if (view.draggingNodeId >= 0)
     {
         if (input.leftMouseDown)
@@ -352,6 +374,16 @@ void UpdateGraphViewInteraction(
 
     if (!canvasRect.Contains(input.mousePosition))
     {
+        view.hoveredNodeId = -1;
+        SyncSelectedNodeVisuals(view);
+        return;
+    }
+
+    if (input.middleMousePressed)
+    {
+        view.panningCanvas = true;
+        view.panStartMousePosition = input.mousePosition;
+        view.panStartCameraOffset = view.cameraOffset;
         view.hoveredNodeId = -1;
         SyncSelectedNodeVisuals(view);
         return;
