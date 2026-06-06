@@ -34,6 +34,9 @@ struct GraphViewState
     int hoveredNodeId = -1;
     int draggingNodeId = -1;
 
+    int hoveredEdgeId = -1;
+    int selectedEdgeId = -1;
+
     int hoveredPortNodeId = -1;
     int hoveredPortId = -1;
 
@@ -74,6 +77,13 @@ PortHit HitTestPort(
     const graph::GraphDocument& graph,
     const GraphViewState& view,
     Vec2 canvasPosition,
+    Rect canvasRect
+);
+
+int HitTestEdge(
+    const graph::GraphDocument& graph,
+    const GraphViewState& view,
+    Vec2 screenPosition,
     Rect canvasRect
 );
 

@@ -126,6 +126,11 @@ void ClearHoveredPort(GraphViewState& view)
     view.hoveredPortId = -1;
 }
 
+void ClearHoveredEdge(GraphViewState& view)
+{
+    view.hoveredEdgeId = -1;
+}
+
 void SyncHoveredPort(GraphViewState& view, PortHit hit)
 {
     view.hoveredPortNodeId = hit.nodeId;
@@ -205,33 +210,111 @@ Vec2 PortPosition(const NodeVisual& visual, const graph::GraphPort& port, int in
     return {visual.position.x + visual.size.x, y};
 }
 
-void DrawBezierApprox(Renderer2D& renderer, Vec2 from, Vec2 to, Rect clipRect, Color color, float thickness)
+struct CubicBezier
+{
+    Vec2 p0{};
+    Vec2 p1{};
+    Vec2 p2{};
+    Vec2 p3{};
+};
+
+CubicBezier MakeWireBezier(Vec2 from, Vec2 to)
 {
     const float dx = std::abs(to.x - from.x);
     const float handle = std::max(56.0f, dx * 0.45f);
 
-    const Vec2 p0 = from;
-    const Vec2 p1 = {from.x + handle, from.y};
-    const Vec2 p2 = {to.x - handle, to.y};
-    const Vec2 p3 = to;
+    return {
+        from,
+        {from.x + handle, from.y},
+        {to.x - handle, to.y},
+        to
+    };
+}
 
-    Vec2 previous = p0;
+Vec2 EvaluateBezier(const CubicBezier& bezier, float t)
+{
+    const float u = 1.0f - t;
+
+    const float a = u * u * u;
+    const float b = 3.0f * u * u * t;
+    const float c = 3.0f * u * t * t;
+    const float d = t * t * t;
+
+    return {
+        a * bezier.p0.x + b * bezier.p1.x + c * bezier.p2.x + d * bezier.p3.x,
+        a * bezier.p0.y + b * bezier.p1.y + c * bezier.p2.y + d * bezier.p3.y
+    };
+}
+
+float DistanceToSegment(Vec2 point, Vec2 a, Vec2 b)
+{
+    const Vec2 ab = {b.x - a.x, b.y - a.y};
+    const Vec2 ap = {point.x - a.x, point.y - a.y};
+    const float lengthSquared = ab.x * ab.x + ab.y * ab.y;
+
+    if (lengthSquared <= 0.0001f)
+    {
+        return Distance(point, a);
+    }
+
+    const float t = std::clamp((ap.x * ab.x + ap.y * ab.y) / lengthSquared, 0.0f, 1.0f);
+    const Vec2 closest = {a.x + ab.x * t, a.y + ab.y * t};
+    return Distance(point, closest);
+}
+
+bool GetEdgeEndpoints(
+    const graph::GraphDocument& graph,
+    const GraphViewState& view,
+    const graph::GraphEdge& edge,
+    Rect canvasRect,
+    Vec2& from,
+    Vec2& to
+)
+{
+    const graph::GraphNode* fromNode = graph::FindNode(graph, edge.fromNodeId);
+    const graph::GraphNode* toNode = graph::FindNode(graph, edge.toNodeId);
+    const graph::GraphPort* fromPort = graph::FindPort(graph, edge.fromNodeId, edge.fromPortId);
+    const graph::GraphPort* toPort = graph::FindPort(graph, edge.toNodeId, edge.toPortId);
+
+    if (fromNode == nullptr || toNode == nullptr || fromPort == nullptr || toPort == nullptr)
+    {
+        return false;
+    }
+
+    const auto fromVisualIt = view.nodeVisuals.find(fromNode->id);
+    const auto toVisualIt = view.nodeVisuals.find(toNode->id);
+
+    if (fromVisualIt == view.nodeVisuals.end() || toVisualIt == view.nodeVisuals.end())
+    {
+        return false;
+    }
+
+    if (!IsNodeFullyInsideCanvas(fromVisualIt->second, view, canvasRect) ||
+        !IsNodeFullyInsideCanvas(toVisualIt->second, view, canvasRect))
+    {
+        return false;
+    }
+
+    const int fromIndex = PortIndex(*fromNode, fromPort->id);
+    const int toIndex = PortIndex(*toNode, toPort->id);
+
+    from = CanvasToScreen(PortPosition(fromVisualIt->second, *fromPort, fromIndex), view, canvasRect);
+    to = CanvasToScreen(PortPosition(toVisualIt->second, *toPort, toIndex), view, canvasRect);
+
+    return true;
+}
+
+void DrawBezierApprox(Renderer2D& renderer, Vec2 from, Vec2 to, Rect clipRect, Color color, float thickness)
+{
+    const CubicBezier bezier = MakeWireBezier(from, to);
+
+    Vec2 previous = bezier.p0;
 
     constexpr int segments = 20;
     for (int i = 1; i <= segments; ++i)
     {
         const float t = static_cast<float>(i) / static_cast<float>(segments);
-        const float u = 1.0f - t;
-
-        const float a = u * u * u;
-        const float b = 3.0f * u * u * t;
-        const float c = 3.0f * u * t * t;
-        const float d = t * t * t;
-
-        const Vec2 point = {
-            a * p0.x + b * p1.x + c * p2.x + d * p3.x,
-            a * p0.y + b * p1.y + c * p2.y + d * p3.y
-        };
+        const Vec2 point = EvaluateBezier(bezier, t);
 
         if (clipRect.Contains(previous) && clipRect.Contains(point))
         {
@@ -456,6 +539,53 @@ PortHit HitTestPort(
     return {};
 }
 
+int HitTestEdge(
+    const graph::GraphDocument& graph,
+    const GraphViewState& view,
+    Vec2 screenPosition,
+    Rect canvasRect
+)
+{
+    if (!canvasRect.Contains(screenPosition))
+    {
+        return -1;
+    }
+
+    const float tolerance = 7.0f;
+
+    for (auto it = graph.edges.rbegin(); it != graph.edges.rend(); ++it)
+    {
+        Vec2 from{};
+        Vec2 to{};
+
+        if (!GetEdgeEndpoints(graph, view, *it, canvasRect, from, to))
+        {
+            continue;
+        }
+
+        const CubicBezier bezier = MakeWireBezier(from, to);
+        Vec2 previous = bezier.p0;
+
+        constexpr int segments = 20;
+        for (int i = 1; i <= segments; ++i)
+        {
+            const float t = static_cast<float>(i) / static_cast<float>(segments);
+            const Vec2 point = EvaluateBezier(bezier, t);
+
+            if (canvasRect.Contains(previous) &&
+                canvasRect.Contains(point) &&
+                DistanceToSegment(screenPosition, previous, point) <= tolerance)
+            {
+                return it->id;
+            }
+
+            previous = point;
+        }
+    }
+
+    return -1;
+}
+
 void UpdateGraphViewInteraction(
     GraphViewState& view,
     graph::GraphDocument& graph,
@@ -464,6 +594,15 @@ void UpdateGraphViewInteraction(
 )
 {
     Vec2 canvasMouse = ScreenToCanvas(input.mousePosition, view, canvasRect);
+
+    if (input.keyDeletePressed && view.selectedEdgeId >= 0)
+    {
+        graph::RemoveEdge(graph, view.selectedEdgeId);
+        view.selectedEdgeId = -1;
+        view.hoveredEdgeId = -1;
+        SyncSelectedNodeVisuals(view);
+        return;
+    }
 
     if (view.panningCanvas)
     {
@@ -481,6 +620,7 @@ void UpdateGraphViewInteraction(
 
             view.hoveredNodeId = -1;
             ClearHoveredPort(view);
+            ClearHoveredEdge(view);
             SyncSelectedNodeVisuals(view);
             return;
         }
@@ -547,16 +687,23 @@ void UpdateGraphViewInteraction(
                 view.hoveredPortId
             ))
         {
-            graph::AddEdge(
+            const int edgeId = graph::AddEdge(
                 graph,
                 view.wireStartNodeId,
                 view.wireStartPortId,
                 view.hoveredPortNodeId,
                 view.hoveredPortId
             );
+
+            if (edgeId > 0)
+            {
+                view.selectedEdgeId = edgeId;
+                view.selectedNodeId = -1;
+            }
         }
 
         view.hoveredNodeId = -1;
+        ClearHoveredEdge(view);
         ClearWireDrag(view);
         ClearHoveredPort(view);
         SyncSelectedNodeVisuals(view);
@@ -601,6 +748,7 @@ void UpdateGraphViewInteraction(
         view.panStartCameraOffset = view.cameraOffset;
         view.hoveredNodeId = -1;
         ClearHoveredPort(view);
+        ClearHoveredEdge(view);
         SyncSelectedNodeVisuals(view);
         return;
     }
@@ -608,6 +756,9 @@ void UpdateGraphViewInteraction(
     const PortHit portHit = HitTestPort(graph, view, canvasMouse, canvasRect);
     SyncHoveredPort(view, portHit);
     view.hoveredNodeId = HitTestNode(graph, view, canvasMouse, canvasRect);
+    view.hoveredEdgeId = (view.hoveredPortId < 0 && view.hoveredNodeId < 0)
+        ? HitTestEdge(graph, view, input.mousePosition, canvasRect)
+        : -1;
 
     if (input.leftMousePressed)
     {
@@ -620,22 +771,32 @@ void UpdateGraphViewInteraction(
             view.wireStartPortId = view.hoveredPortId;
             view.wirePreviewCanvasPosition = canvasMouse;
             view.draggingNodeId = -1;
+            view.selectedEdgeId = -1;
+        }
+        else if (view.hoveredNodeId >= 0)
+        {
+            view.selectedNodeId = view.hoveredNodeId;
+            view.selectedEdgeId = -1;
+            view.draggingNodeId = view.hoveredNodeId;
+            view.dragStartCanvasPosition = canvasMouse;
+
+            const auto visualIt = view.nodeVisuals.find(view.hoveredNodeId);
+            if (visualIt != view.nodeVisuals.end())
+            {
+                view.dragStartNodePosition = visualIt->second.position;
+            }
+        }
+        else if (view.hoveredEdgeId >= 0)
+        {
+            view.selectedNodeId = -1;
+            view.selectedEdgeId = view.hoveredEdgeId;
+            view.draggingNodeId = -1;
         }
         else
         {
-            view.selectedNodeId = view.hoveredNodeId;
-
-            if (view.hoveredNodeId >= 0)
-            {
-                view.draggingNodeId = view.hoveredNodeId;
-                view.dragStartCanvasPosition = canvasMouse;
-
-                const auto visualIt = view.nodeVisuals.find(view.hoveredNodeId);
-                if (visualIt != view.nodeVisuals.end())
-                {
-                    view.dragStartNodePosition = visualIt->second.position;
-                }
-            }
+            view.selectedNodeId = -1;
+            view.selectedEdgeId = -1;
+            view.draggingNodeId = -1;
         }
     }
 
@@ -652,37 +813,35 @@ void DrawGraphView(
 {
     for (const graph::GraphEdge& edge : graph.edges)
     {
-        const graph::GraphNode* fromNode = graph::FindNode(graph, edge.fromNodeId);
-        const graph::GraphNode* toNode = graph::FindNode(graph, edge.toNodeId);
         const graph::GraphPort* fromPort = graph::FindPort(graph, edge.fromNodeId, edge.fromPortId);
-        const graph::GraphPort* toPort = graph::FindPort(graph, edge.toNodeId, edge.toPortId);
 
-        if (fromNode == nullptr || toNode == nullptr || fromPort == nullptr || toPort == nullptr)
+        if (fromPort == nullptr)
         {
             continue;
         }
 
-        const auto fromVisualIt = view.nodeVisuals.find(fromNode->id);
-        const auto toVisualIt = view.nodeVisuals.find(toNode->id);
+        Vec2 from{};
+        Vec2 to{};
 
-        if (fromVisualIt == view.nodeVisuals.end() || toVisualIt == view.nodeVisuals.end())
+        if (!GetEdgeEndpoints(graph, view, edge, canvasRect, from, to))
         {
             continue;
         }
 
-        if (!IsNodeFullyInsideCanvas(fromVisualIt->second, view, canvasRect) ||
-            !IsNodeFullyInsideCanvas(toVisualIt->second, view, canvasRect))
+        const bool selected = edge.id == view.selectedEdgeId;
+        const bool hovered = edge.id == view.hoveredEdgeId;
+        const Color color = selected || hovered
+            ? theme.wireActive
+            : ResourceColor(fromPort->resource, theme);
+        const float thickness = selected ? 3.0f : hovered ? 2.5f : 2.0f;
+
+        DrawBezierApprox(renderer, from, to, canvasRect, color, thickness);
+
+        if (selected)
         {
-            continue;
+            const CubicBezier bezier = MakeWireBezier(from, to);
+            renderer.DrawCircle(EvaluateBezier(bezier, 0.5f), 4.0f, theme.wireActive);
         }
-
-        const int fromIndex = PortIndex(*fromNode, fromPort->id);
-        const int toIndex = PortIndex(*toNode, toPort->id);
-
-        const Vec2 from = CanvasToScreen(PortPosition(fromVisualIt->second, *fromPort, fromIndex), view, canvasRect);
-        const Vec2 to = CanvasToScreen(PortPosition(toVisualIt->second, *toPort, toIndex), view, canvasRect);
-
-        DrawBezierApprox(renderer, from, to, canvasRect, ResourceColor(fromPort->resource, theme), 2.0f);
     }
 
     if (view.draggingWire)

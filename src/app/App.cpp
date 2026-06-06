@@ -227,6 +227,8 @@ void App::RunFrame()
             << " wheel=" << m_input.mouseWheelDelta
             << " selectedNode=" << m_graphView.selectedNodeId
             << " hoveredNode=" << m_graphView.hoveredNodeId
+            << " hoveredEdge=" << m_graphView.hoveredEdgeId
+            << " selectedEdge=" << m_graphView.selectedEdgeId
             << " hoveredPort=" << m_graphView.hoveredPortNodeId << ":" << m_graphView.hoveredPortId
             << " draggingNode=" << m_graphView.draggingNodeId
             << " draggingWire=" << (m_graphView.draggingWire ? 1 : 0)
