@@ -279,6 +279,40 @@ int MaxEdgeId(const GraphDocument& graph)
     return maxId;
 }
 
+bool HasNodeId(const GraphDocument& graph, int nodeId)
+{
+    if (nodeId < 0)
+    {
+        return false;
+    }
+
+    return std::any_of(
+        graph.nodes.begin(),
+        graph.nodes.end(),
+        [nodeId](const GraphNode& node)
+        {
+            return node.id == nodeId;
+        }
+    );
+}
+
+bool HasEdgeId(const GraphDocument& graph, int edgeId)
+{
+    if (edgeId < 0)
+    {
+        return false;
+    }
+
+    return std::any_of(
+        graph.edges.begin(),
+        graph.edges.end(),
+        [edgeId](const GraphEdge& edge)
+        {
+            return edge.id == edgeId;
+        }
+    );
+}
+
 void SetError(std::string* errorMessage, const std::string& message)
 {
     if (errorMessage != nullptr)
@@ -335,6 +369,8 @@ bool SaveGraphToFile(
             {"view", Json{
                 {"cameraOffset", SerializeVec2(view.cameraOffset)},
                 {"zoom", view.zoom},
+                {"selectedNodeId", view.selectedNodeId},
+                {"selectedEdgeId", view.selectedEdgeId},
                 {"nodeVisuals", std::move(nodeVisuals)}
             }}
         };
@@ -405,6 +441,17 @@ bool LoadGraphFromFile(
             loadedView.cameraOffset = DeserializeVec2(viewJson.value("cameraOffset", Json{{"x", 0.0f}, {"y", 0.0f}}));
             loadedView.zoom = viewJson.value("zoom", 1.0f);
 
+            const int selectedNodeId = viewJson.value("selectedNodeId", -1);
+            const int selectedEdgeId = viewJson.value("selectedEdgeId", -1);
+
+            loadedView.selectedNodeId = HasNodeId(loadedGraph, selectedNodeId)
+                ? selectedNodeId
+                : -1;
+
+            loadedView.selectedEdgeId = HasEdgeId(loadedGraph, selectedEdgeId)
+                ? selectedEdgeId
+                : -1;
+
             for (const Json& visual : viewJson.value("nodeVisuals", Json::array()))
             {
                 editor::NodeVisual nodeVisual = DeserializeNodeVisual(visual);
@@ -412,16 +459,15 @@ bool LoadGraphFromFile(
             }
         }
 
-        loadedView.selectedNodeId = -1;
         loadedView.hoveredNodeId = -1;
         loadedView.draggingNodeId = -1;
         loadedView.hoveredEdgeId = -1;
-        loadedView.selectedEdgeId = -1;
         loadedView.hoveredPortNodeId = -1;
         loadedView.hoveredPortId = -1;
         loadedView.draggingWire = false;
         loadedView.wireStartNodeId = -1;
         loadedView.wireStartPortId = -1;
+        loadedView.lastWireDropFailure = editor::WireDropFailureReason::None;
         loadedView.panningCanvas = false;
 
         graph = std::move(loadedGraph);

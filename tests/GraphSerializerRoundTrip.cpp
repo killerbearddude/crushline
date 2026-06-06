@@ -127,13 +127,19 @@ bool CheckGraph(const graph::GraphDocument& actual, const graph::GraphDocument& 
     return true;
 }
 
-bool CheckNodeVisual(const editor::NodeVisual& actual, const editor::NodeVisual& expected)
+bool CheckNodeVisual(
+    const editor::NodeVisual& actual,
+    const editor::NodeVisual& expected,
+    int selectedNodeId
+)
 {
+    const bool expectedSelected = expected.nodeId == selectedNodeId;
+
     return
         Check(actual.nodeId == expected.nodeId, "node visual id mismatch") &&
         CheckVec2(actual.position, expected.position, "node visual position mismatch") &&
         CheckVec2(actual.size, expected.size, "node visual size mismatch") &&
-        Check(!actual.selected, "loaded node visual selection should be cleared");
+        Check(actual.selected == expectedSelected, "node visual selection mismatch");
 }
 
 bool CheckView(const editor::GraphViewState& actual, const editor::GraphViewState& expected)
@@ -153,23 +159,24 @@ bool CheckView(const editor::GraphViewState& actual, const editor::GraphViewStat
             return false;
         }
 
-        if (!CheckNodeVisual(actualIt->second, expectedVisual))
+        if (!CheckNodeVisual(actualIt->second, expectedVisual, expected.selectedNodeId))
         {
             return false;
         }
     }
 
     return
-        Check(actual.selectedNodeId == -1, "loaded selected node should be cleared") &&
+        Check(actual.selectedNodeId == expected.selectedNodeId, "selected node should persist") &&
+        Check(actual.selectedEdgeId == expected.selectedEdgeId, "selected edge should persist") &&
         Check(actual.hoveredNodeId == -1, "loaded hovered node should be cleared") &&
         Check(actual.draggingNodeId == -1, "loaded dragging node should be cleared") &&
         Check(actual.hoveredEdgeId == -1, "loaded hovered edge should be cleared") &&
-        Check(actual.selectedEdgeId == -1, "loaded selected edge should be cleared") &&
         Check(actual.hoveredPortNodeId == -1, "loaded hovered port node should be cleared") &&
         Check(actual.hoveredPortId == -1, "loaded hovered port should be cleared") &&
         Check(!actual.draggingWire, "loaded dragging wire should be cleared") &&
         Check(actual.wireStartNodeId == -1, "loaded wire start node should be cleared") &&
         Check(actual.wireStartPortId == -1, "loaded wire start port should be cleared") &&
+        Check(actual.lastWireDropFailure == editor::WireDropFailureReason::None, "loaded wire drop failure should be cleared") &&
         Check(!actual.panningCanvas, "loaded panning state should be cleared");
 }
 
@@ -192,6 +199,7 @@ int RunGraphSerializerRoundTripTest()
     view.draggingWire = true;
     view.wireStartNodeId = 2;
     view.wireStartPortId = 3;
+    view.lastWireDropFailure = editor::WireDropFailureReason::DuplicateConnection;
     view.panningCanvas = true;
 
     if (auto it = view.nodeVisuals.find(3); it != view.nodeVisuals.end())
