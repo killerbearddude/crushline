@@ -52,7 +52,8 @@ Rect CanvasToScreen(Rect rect, const GraphViewState& view, Rect canvasRect);
 int HitTestNode(
     const graph::GraphDocument& graph,
     const GraphViewState& view,
-    Vec2 canvasPosition
+    Vec2 canvasPosition,
+    Rect canvasRect
 );
 
 void UpdateGraphViewInteraction(

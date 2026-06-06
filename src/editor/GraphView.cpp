@@ -100,6 +100,20 @@ Rect NodeRect(const NodeVisual& visual)
     };
 }
 
+bool RectFullyInside(Rect inner, Rect outer)
+{
+    return
+        inner.x >= outer.x &&
+        inner.y >= outer.y &&
+        inner.x + inner.w <= outer.x + outer.w &&
+        inner.y + inner.h <= outer.y + outer.h;
+}
+
+bool IsNodeFullyInsideCanvas(const NodeVisual& visual, const GraphViewState& view, Rect canvasRect)
+{
+    return RectFullyInside(CanvasToScreen(NodeRect(visual), view, canvasRect), canvasRect);
+}
+
 void SyncSelectedNodeVisuals(GraphViewState& view)
 {
     for (auto& [nodeId, visual] : view.nodeVisuals)
@@ -141,7 +155,7 @@ Vec2 PortPosition(const NodeVisual& visual, const graph::GraphPort& port, int in
     return {visual.position.x + visual.size.x, y};
 }
 
-void DrawBezierApprox(Renderer2D& renderer, Vec2 from, Vec2 to, Color color, float thickness)
+void DrawBezierApprox(Renderer2D& renderer, Vec2 from, Vec2 to, Rect clipRect, Color color, float thickness)
 {
     const float dx = std::abs(to.x - from.x);
     const float handle = std::max(56.0f, dx * 0.45f);
@@ -169,7 +183,11 @@ void DrawBezierApprox(Renderer2D& renderer, Vec2 from, Vec2 to, Color color, flo
             a * p0.y + b * p1.y + c * p2.y + d * p3.y
         };
 
-        renderer.DrawLine(previous, point, color, thickness);
+        if (clipRect.Contains(previous) && clipRect.Contains(point))
+        {
+            renderer.DrawLine(previous, point, color, thickness);
+        }
+
         previous = point;
     }
 }
@@ -292,7 +310,8 @@ void EnsureNodeVisuals(GraphViewState& view, const graph::GraphDocument& graph)
 int HitTestNode(
     const graph::GraphDocument& graph,
     const GraphViewState& view,
-    Vec2 canvasPosition
+    Vec2 canvasPosition,
+    Rect canvasRect
 )
 {
     for (auto it = graph.nodes.rbegin(); it != graph.nodes.rend(); ++it)
@@ -301,6 +320,11 @@ int HitTestNode(
         const auto visualIt = view.nodeVisuals.find(node.id);
 
         if (visualIt == view.nodeVisuals.end())
+        {
+            continue;
+        }
+
+        if (!IsNodeFullyInsideCanvas(visualIt->second, view, canvasRect))
         {
             continue;
         }
@@ -412,7 +436,7 @@ void UpdateGraphViewInteraction(
         return;
     }
 
-    view.hoveredNodeId = HitTestNode(graph, view, canvasMouse);
+    view.hoveredNodeId = HitTestNode(graph, view, canvasMouse, canvasRect);
 
     if (input.leftMousePressed)
     {
@@ -462,13 +486,19 @@ void DrawGraphView(
             continue;
         }
 
+        if (!IsNodeFullyInsideCanvas(fromVisualIt->second, view, canvasRect) ||
+            !IsNodeFullyInsideCanvas(toVisualIt->second, view, canvasRect))
+        {
+            continue;
+        }
+
         const int fromIndex = PortIndex(*fromNode, fromPort->id);
         const int toIndex = PortIndex(*toNode, toPort->id);
 
         const Vec2 from = CanvasToScreen(PortPosition(fromVisualIt->second, *fromPort, fromIndex), view, canvasRect);
         const Vec2 to = CanvasToScreen(PortPosition(toVisualIt->second, *toPort, toIndex), view, canvasRect);
 
-        DrawBezierApprox(renderer, from, to, ResourceColor(fromPort->resource, theme), 2.0f);
+        DrawBezierApprox(renderer, from, to, canvasRect, ResourceColor(fromPort->resource, theme), 2.0f);
     }
 
     for (const graph::GraphNode& node : graph.nodes)
@@ -476,6 +506,11 @@ void DrawGraphView(
         const auto visualIt = view.nodeVisuals.find(node.id);
 
         if (visualIt == view.nodeVisuals.end())
+        {
+            continue;
+        }
+
+        if (!IsNodeFullyInsideCanvas(visualIt->second, view, canvasRect))
         {
             continue;
         }
