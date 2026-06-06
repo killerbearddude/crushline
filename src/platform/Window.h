@@ -32,4 +32,5 @@ private:
 
     bool m_previousDeleteDown = false;
     bool m_previousEscapeDown = false;
+    bool m_previousRDown = false;
 };

@@ -169,7 +169,7 @@ bool App::Initialize(const AppConfig& config)
     }
     else
     {
-        std::cout << "Press Escape or close the window to quit.\n";
+        std::cout << "Press Escape or close the window to quit. Ctrl+R resets the sample graph.\n";
     }
 
     return true;
@@ -186,6 +186,13 @@ void App::RunFrame()
     if (m_input.keyEscapePressed)
     {
         m_shouldClose = true;
+    }
+
+    if (m_input.keyCtrlDown && m_input.keyRPressed)
+    {
+        m_graph = graph::CreateSampleFactoryGraph();
+        m_graphView = editor::CreateSampleFactoryGraphView(m_graph);
+        std::cout << "Sample factory graph reset.\n";
     }
 
     m_renderer.BeginFrame(m_window.Width(), m_window.Height(), m_theme.background);
