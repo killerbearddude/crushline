@@ -54,6 +54,7 @@ add_executable(crushline
     src/graph/MachineCatalog.cpp
     src/graph/RecipeCatalog.cpp
     src/graph/ResourceCatalog.cpp
+    src/graph/ScenarioCatalog.cpp
     src/graph/GraphSerializer.cpp
     src/graph/SampleGraph.cpp
     tests/GraphSerializerRoundTrip.cpp
@@ -61,6 +62,7 @@ add_executable(crushline
     tests/GraphConnectionTest.cpp
     tests/ProductionCatalogTest.cpp
     tests/GraphRecipeNodeTest.cpp
+    tests/ScenarioCatalogTest.cpp
     src/platform/Window.cpp
     src/platform/Time.cpp
     src/renderer/FontAtlas.cpp
@@ -91,4 +93,5 @@ if (BUILD_TESTING)
     add_test(NAME graph_connection COMMAND crushline --graph-connection-test)
     add_test(NAME production_catalog COMMAND crushline --production-catalog-test)
     add_test(NAME graph_recipe_node COMMAND crushline --graph-recipe-node-test)
+    add_test(NAME scenario_catalog COMMAND crushline --scenario-catalog-test)
 endif()

@@ -16,10 +16,12 @@ namespace graph
 using ResourceId = int;
 using MachineId = int;
 using RecipeId = int;
+using ScenarioId = int;
 
 inline constexpr ResourceId InvalidResourceId = 0;
 inline constexpr MachineId InvalidMachineId = 0;
 inline constexpr RecipeId InvalidRecipeId = 0;
+inline constexpr ScenarioId InvalidScenarioId = 0;
 
 // Unlock tier for production content. Early patches use Tier0 only; higher tiers
 // are reserved for the future tech-tree progression described in the design doc.
@@ -59,6 +61,19 @@ enum class MachineClass
     Refining,
     Storage,
     WasteHandling
+};
+
+
+// Scenario objective condition used by the MVP puzzle goals. Objective kinds are
+// typed so the evaluator can distinguish production requirements from handling,
+// count, power, or waste constraints without overloading one numeric field.
+enum class ObjectiveKind
+{
+    ProduceAtLeastRate,
+    HandleAllProduced,
+    MaxWasteRate,
+    MaxMachineCount,
+    MaxPowerKw
 };
 
 // Static definition for a resource that can flow through graph edges. Boolean
@@ -115,6 +130,29 @@ struct RecipeDef
     float powerKw = 0.0f;
 };
 
+
+// One typed objective condition inside a scenario. Only ProduceAtLeastRate and
+// HandleAllProduced are used in Tier 0; the other fields support later objective
+// types without changing the scenario container shape.
+struct ScenarioObjective
+{
+    ObjectiveKind kind = ObjectiveKind::ProduceAtLeastRate;
+    ResourceId resourceId = InvalidResourceId;
+    float thresholdRatePerMinute = 0.0f;
+    int thresholdCount = 0;
+};
+
+// Static scenario definition describing the current puzzle goal. Scenarios refer
+// to production resources but do not own resources, machines, recipes, or graphs.
+struct ScenarioDef
+{
+    ScenarioId id = InvalidScenarioId;
+    std::string key;
+    std::string displayName;
+    TechTier tier = TechTier::Tier0;
+    std::vector<ScenarioObjective> objectives;
+};
+
 namespace production_ids
 {
 // Stable Tier 0 IDs. These remain fixed so tests, sample graphs, serializers,
@@ -139,6 +177,8 @@ inline constexpr RecipeId CrushIronOre = 3;
 inline constexpr RecipeId WashCrushedIronOre = 4;
 inline constexpr RecipeId SmeltWashedIronOre = 5;
 inline constexpr RecipeId StoreIronSlurry = 6;
+
+inline constexpr ScenarioId Tier0IronIngotScenario = 1;
 } // namespace production_ids
 
 } // namespace graph
