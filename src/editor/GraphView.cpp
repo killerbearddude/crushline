@@ -381,6 +381,7 @@ void DrawNode(Renderer2D& renderer, const graph::GraphNode& node, const NodeVisu
     renderer.DrawRect(header, theme.nodeHeader);
     renderer.DrawRectOutline(nodeRect, borderColor, borderThickness);
     renderer.DrawRect({nodeRect.x + 8.0f, nodeRect.y + 8.0f, 4.0f, 9.0f}, accent);
+    renderer.DrawText({nodeRect.x + 18.0f, nodeRect.y + 5.0f}, node.name, theme.textPrimary);
 
     if (hovered && !visual.selected)
     {
@@ -391,6 +392,8 @@ void DrawNode(Renderer2D& renderer, const graph::GraphNode& node, const NodeVisu
             1.0f
         );
     }
+
+    renderer.DrawText({nodeRect.x + 18.0f, nodeRect.y + 30.0f * view.zoom}, node.inputs.empty() ? "SOURCE" : "MACHINE", theme.textMuted);
 
     const float fill = node.capacity > 0.0f ? std::min(node.throughput / node.capacity, 1.0f) : node.efficiency;
     const Rect barTrack = {nodeRect.x + 12.0f, nodeRect.y + nodeRect.h - 12.0f, nodeRect.w - 24.0f, 3.0f};

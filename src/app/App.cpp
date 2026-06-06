@@ -9,6 +9,7 @@
 #include <cmath>
 #include <iostream>
 #include <string>
+#include <string_view>
 
 namespace
 {
@@ -220,14 +221,38 @@ void DrawDashboardMetrics(
         theme.accentCyan
     };
 
+    const std::array<std::string_view, 8> primaryLabels = {
+        "THROUGHPUT",
+        "NODES",
+        "EDGES",
+        "EFFICIENCY",
+        "POWER USE",
+        "WASTE",
+        "WARNINGS",
+        "BOTTLENECKS"
+    };
+
+    const std::array<std::string_view, 8> secondaryLabels = {
+        "PLANT EFF",
+        "OUTPUT RATE",
+        "POWER LOAD",
+        "RESERVE",
+        "STORAGE",
+        "ALERTS",
+        "BLOCKS",
+        "LINKS"
+    };
+
     const std::array<float, 8>& values = primaryPanel ? primaryValues : secondaryValues;
     const std::array<Color, 8>& colors = primaryPanel ? primaryColors : secondaryColors;
+    const std::array<std::string_view, 8>& labels = primaryPanel ? primaryLabels : secondaryLabels;
 
     for (int i = 0; i < 8; ++i)
     {
         const float y = startY + static_cast<float>(i) * (rowHeight + 6.0f);
         const Rect row = {content.x, y, content.w, rowHeight};
         DrawMetricRow(renderer, row, theme, values[i], colors[i], i);
+        renderer.DrawText({row.x + 24.0f, row.y + 5.0f}, labels[i], theme.textSecondary);
     }
 }
 
@@ -257,13 +282,22 @@ void DrawStatusChips(Renderer2D& renderer, Rect topBar, const UiTheme& theme, co
         AlertColor(theme, warningRatio)
     };
 
+    const std::string_view labels[] = {
+        "FLOW",
+        "EFF",
+        "POWER",
+        "WASTE",
+        "WARN"
+    };
+
     for (int i = 0; i < 5; ++i)
     {
         const Rect chip = {x, chipY, chipW, chipH};
         renderer.DrawRect(chip, theme.panel);
         renderer.DrawRectOutline(chip, theme.panelBorder, 1.0f);
         renderer.DrawRect({chip.x + 10.0f, chip.y + 8.0f, 4.0f, 12.0f}, accents[i]);
-        DrawProgressBar(renderer, {chip.x + 24.0f, chip.y + 18.0f, chip.w - 38.0f, 4.0f}, theme, values[i], accents[i]);
+        renderer.DrawText({chip.x + 24.0f, chip.y + 5.0f}, labels[i], theme.textSecondary);
+        DrawProgressBar(renderer, {chip.x + 24.0f, chip.y + 19.0f, chip.w - 38.0f, 4.0f}, theme, values[i], accents[i]);
         x += chipW + 10.0f;
     }
 }
@@ -281,6 +315,7 @@ void DrawInspectorBands(Renderer2D& renderer, Rect inspector, const UiTheme& the
         const Rect column = {content.x + static_cast<float>(i) * (columnW + columnGap), y, columnW, h};
         renderer.DrawRect(column, i == 0 ? theme.panelAlt : theme.panel);
         renderer.DrawRectOutline(column, theme.panelBorder, 1.0f);
+        renderer.DrawText({column.x + 10.0f, column.y + 8.0f}, i == 0 ? "SELECTED" : "DETAILS", theme.textSecondary);
         renderer.DrawLine(
             {column.x + 10.0f, column.y + 24.0f},
             {column.x + column.w - 10.0f, column.y + 24.0f},
@@ -390,12 +425,18 @@ void App::RunFrame()
 
     DrawPanel(m_renderer, regions.topBar, m_theme, m_theme.panelAlt);
     DrawPanel(m_renderer, regions.leftPanel, m_theme, m_theme.panel);
+    m_renderer.DrawText({regions.topBar.x + 22.0f, regions.topBar.y + 13.0f}, "CRUSHLINE", m_theme.textPrimary);
+    m_renderer.DrawText({regions.leftPanel.x + 14.0f, regions.leftPanel.y + 8.0f}, "INPUTS", m_theme.textSecondary);
     m_renderer.DrawRect(regions.graphCanvas, m_theme.canvas);
     DrawGrid(m_renderer, regions.graphCanvas, m_theme, m_graphView.cameraOffset, m_graphView.zoom);
     m_renderer.DrawRectOutline(regions.graphCanvas, m_theme.panelBorder, m_theme.borderThickness);
     DrawPanel(m_renderer, regions.rightPanel, m_theme, m_theme.panel);
     DrawPanel(m_renderer, regions.inspector, m_theme, m_theme.panel);
     DrawPanel(m_renderer, regions.eventLog, m_theme, m_theme.panelAlt);
+    m_renderer.DrawText({regions.graphCanvas.x + 12.0f, regions.graphCanvas.y + 8.0f}, "GRAPH", m_theme.textMuted);
+    m_renderer.DrawText({regions.rightPanel.x + 14.0f, regions.rightPanel.y + 8.0f}, "PLANT", m_theme.textSecondary);
+    m_renderer.DrawText({regions.inspector.x + 14.0f, regions.inspector.y + 8.0f}, "INSPECTOR", m_theme.textSecondary);
+    m_renderer.DrawText({regions.eventLog.x + 14.0f, regions.eventLog.y + 8.0f}, "EVENT LOG", m_theme.textSecondary);
 
     DrawStatusChips(m_renderer, regions.topBar, m_theme, m_simulationResult);
     DrawDashboardMetrics(m_renderer, regions.leftPanel, m_theme, m_graph, m_simulationResult, true);

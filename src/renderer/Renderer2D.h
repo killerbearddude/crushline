@@ -4,6 +4,8 @@
 #include "core/Math.h"
 #include "core/Rect.h"
 #include "renderer/DrawCommand.h"
+#include "renderer/FontAtlas.h"
+#include "renderer/Texture.h"
 
 #include <cstddef>
 #include <string_view>
@@ -38,6 +40,8 @@ private:
     {
         Vec2 position{};
         Color color{};
+        Vec2 uv{};
+        float useTexture = 0.0f;
     };
 
     bool BuildPipeline();
@@ -48,6 +52,8 @@ private:
     void AddRectOutline(Rect rect, Color color, float thickness);
     void AddLine(Vec2 a, Vec2 b, Color color, float thickness);
     void AddCircle(Vec2 center, float radius, Color color);
+    void AddText(Vec2 position, std::string_view text, Color color);
+    void AddTexturedRect(Rect rect, Vec2 uvMin, Vec2 uvMax, Color color);
     void PushTriangle(Vertex a, Vertex b, Vertex c);
 
     std::vector<DrawCommand> m_commands;
@@ -58,6 +64,11 @@ private:
     unsigned int m_vbo = 0;
 
     int m_projectionLocation = -1;
+    int m_textureLocation = -1;
+
+    renderer::FontAtlas m_fontAtlas;
+    renderer::Texture2D m_fontTexture;
+    renderer::Texture2D m_whiteTexture;
 
     int m_width = 0;
     int m_height = 0;

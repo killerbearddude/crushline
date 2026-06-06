@@ -13,6 +13,12 @@ set(SDL_SHARED OFF CACHE BOOL "" FORCE)
 set(SDL_STATIC ON CACHE BOOL "" FORCE)
 set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 
+set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
+
 FetchContent_Declare(
     SDL3
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
@@ -27,7 +33,14 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE
 )
 
-FetchContent_MakeAvailable(SDL3 nlohmann_json)
+FetchContent_Declare(
+    freetype
+    GIT_REPOSITORY https://github.com/freetype/freetype.git
+    GIT_TAG VER-2-13-3
+    GIT_SHALLOW TRUE
+)
+
+FetchContent_MakeAvailable(SDL3 nlohmann_json freetype)
 
 find_package(OpenGL REQUIRED)
 
@@ -43,7 +56,9 @@ add_executable(crushline
     tests/GraphSerializerRoundTrip.cpp
     src/platform/Window.cpp
     src/platform/Time.cpp
+    src/renderer/FontAtlas.cpp
     src/renderer/Renderer2D.cpp
+    src/renderer/Texture.cpp
     src/ui/Theme.cpp
 )
 
@@ -53,6 +68,7 @@ target_link_libraries(crushline PRIVATE
     SDL3::SDL3
     OpenGL::GL
     nlohmann_json::nlohmann_json
+    freetype
 )
 
 if (MSVC)
