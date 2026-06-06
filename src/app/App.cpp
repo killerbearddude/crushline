@@ -608,7 +608,7 @@ void DrawSelectedNodeInspector(
         const char* resourceLabel = fromPort == nullptr ? "UNKNOWN" : ResourceTypeLabel(fromPort->resource);
         renderer.DrawText({columns[3].x + 12.0f, columns[3].y + 36.0f}, resourceLabel, resourceColor);
         DrawLabelValue(renderer, {columns[3].x + 12.0f, columns[3].y + 58.0f}, "MATCH", resourceValid ? "YES" : "NO", theme, resourceValid ? theme.accentGreen : theme.accentRed);
-        renderer.DrawText({columns[3].x + 12.0f, columns[3].y + 82.0f}, "DELETE REMOVES THIS LINK", theme.textMuted);
+        renderer.DrawText({columns[3].x + 12.0f, columns[3].y + 82.0f}, "PRESS DELETE TO REMOVE LINK", theme.textMuted);
         renderer.DrawText({columns[3].x + 12.0f, columns[3].y + 102.0f}, "NODE DATA IS UNCHANGED", theme.textMuted);
         return;
     }
@@ -663,6 +663,7 @@ Color EventAccentColor(const UiTheme& theme, const std::string& message)
 {
     if (message.find("failed") != std::string::npos ||
         message.find("Failed") != std::string::npos ||
+        message.find("Invalid") != std::string::npos ||
         message.find("exceeds") != std::string::npos ||
         message.find("Bottlenecks active") != std::string::npos)
     {
@@ -696,6 +697,31 @@ Color EventAccentColor(const UiTheme& theme, const std::string& message)
 float EstimateEventWidth(const std::string& message)
 {
     return std::clamp(34.0f + static_cast<float>(message.size()) * 7.5f, 120.0f, 340.0f);
+}
+
+const char* WireDropFailureMessage(editor::WireDropFailureReason reason)
+{
+    switch (reason)
+    {
+        case editor::WireDropFailureReason::None:
+            return "";
+        case editor::WireDropFailureReason::EmptyTarget:
+            return "Invalid link: release on input port";
+        case editor::WireDropFailureReason::MissingEndpoint:
+            return "Invalid link: missing endpoint";
+        case editor::WireDropFailureReason::InvalidDirection:
+            return "Invalid link: output must target input";
+        case editor::WireDropFailureReason::SelfConnection:
+            return "Invalid link: same node";
+        case editor::WireDropFailureReason::ResourceMismatch:
+            return "Invalid link: resource mismatch";
+        case editor::WireDropFailureReason::DuplicateConnection:
+            return "Invalid link: duplicate";
+        case editor::WireDropFailureReason::InvalidTarget:
+            return "Invalid link rejected";
+    }
+
+    return "Invalid link rejected";
 }
 
 void DrawEventLogMessages(
@@ -901,6 +927,7 @@ void App::RunFrame()
     {
         m_graph = graph::CreateSampleFactoryGraph();
         m_graphView = editor::CreateSampleFactoryGraphView(m_graph);
+        m_lastSelectedEdgeHintId = -1;
         MarkGraphDirty();
         dashboardEvents.push_back("Sample graph reset: " + GraphSummary(m_graph));
         std::cout << "Sample factory graph reset.\n";
@@ -926,6 +953,7 @@ void App::RunFrame()
         std::string errorMessage;
         if (graph::LoadGraphFromFile(m_graph, m_graphView, CurrentGraphPath, &errorMessage))
         {
+            m_lastSelectedEdgeHintId = -1;
             MarkGraphDirty();
             dashboardEvents.push_back("Graph loaded: " + GraphSummary(m_graph));
             std::cout << "Graph loaded from " << CurrentGraphPath << ".\n";
@@ -951,6 +979,24 @@ void App::RunFrame()
     {
         MarkGraphDirty();
         QueueGraphMutationEvents(dashboardEvents, previousNodeCount, previousEdgeCount, m_graph);
+    }
+
+    if (m_graphView.lastWireDropFailure != editor::WireDropFailureReason::None)
+    {
+        dashboardEvents.push_back(WireDropFailureMessage(m_graphView.lastWireDropFailure));
+    }
+
+    if (m_graphView.selectedEdgeId >= 0)
+    {
+        if (m_graphView.selectedEdgeId != m_lastSelectedEdgeHintId)
+        {
+            dashboardEvents.push_back("Link selected: Delete removes link");
+            m_lastSelectedEdgeHintId = m_graphView.selectedEdgeId;
+        }
+    }
+    else
+    {
+        m_lastSelectedEdgeHintId = -1;
     }
 
     EvaluateGraphIfDirty();

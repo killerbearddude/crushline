@@ -51,6 +51,8 @@ private:
 
     bool m_graphDirty = true;
 
+    int m_lastSelectedEdgeHintId = -1;
+
     bool m_eventLogPrimed = false;
     std::size_t m_lastNodeCount = 0;
     std::size_t m_lastEdgeCount = 0;

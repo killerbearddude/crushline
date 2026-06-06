@@ -150,6 +150,70 @@ bool IsOutputPort(const graph::GraphDocument& graph, int nodeId, int portId)
     return port != nullptr && port->direction == graph::PortDirection::Output;
 }
 
+
+WireDropFailureReason ClassifyWireDropFailure(
+    const graph::GraphDocument& graph,
+    int startNodeId,
+    int startPortId,
+    int targetNodeId,
+    int targetPortId
+)
+{
+    const graph::GraphPort* startPort = graph::FindPort(graph, startNodeId, startPortId);
+
+    if (startPort == nullptr)
+    {
+        return WireDropFailureReason::MissingEndpoint;
+    }
+
+    if (targetNodeId < 0 || targetPortId < 0)
+    {
+        return WireDropFailureReason::EmptyTarget;
+    }
+
+    const graph::GraphPort* targetPort = graph::FindPort(graph, targetNodeId, targetPortId);
+
+    if (targetPort == nullptr)
+    {
+        return WireDropFailureReason::MissingEndpoint;
+    }
+
+    if (startNodeId == targetNodeId)
+    {
+        return WireDropFailureReason::SelfConnection;
+    }
+
+    if (startPort->direction != graph::PortDirection::Output ||
+        targetPort->direction != graph::PortDirection::Input)
+    {
+        return WireDropFailureReason::InvalidDirection;
+    }
+
+    if (startPort->resource != targetPort->resource)
+    {
+        return WireDropFailureReason::ResourceMismatch;
+    }
+
+    const auto duplicateIt = std::find_if(
+        graph.edges.begin(),
+        graph.edges.end(),
+        [startNodeId, startPortId, targetNodeId, targetPortId](const graph::GraphEdge& edge) {
+            return
+                edge.fromNodeId == startNodeId &&
+                edge.fromPortId == startPortId &&
+                edge.toNodeId == targetNodeId &&
+                edge.toPortId == targetPortId;
+        }
+    );
+
+    if (duplicateIt != graph.edges.end())
+    {
+        return WireDropFailureReason::DuplicateConnection;
+    }
+
+    return WireDropFailureReason::InvalidTarget;
+}
+
 Color WirePreviewColor(const graph::GraphDocument& graph, const GraphViewState& view, const UiTheme& theme)
 {
     if (view.hoveredPortNodeId >= 0 && view.hoveredPortId >= 0)
@@ -660,6 +724,7 @@ bool UpdateGraphViewInteraction(
 )
 {
     Vec2 canvasMouse = ScreenToCanvas(input.mousePosition, view, canvasRect);
+    view.lastWireDropFailure = WireDropFailureReason::None;
 
     if (input.keyDeletePressed && view.selectedEdgeId >= 0)
     {
@@ -750,30 +815,45 @@ bool UpdateGraphViewInteraction(
 
         bool graphChanged = false;
 
-        if (input.leftMouseReleased &&
-            view.hoveredPortNodeId >= 0 &&
-            view.hoveredPortId >= 0 &&
-            graph::CanConnect(
-                graph,
-                view.wireStartNodeId,
-                view.wireStartPortId,
-                view.hoveredPortNodeId,
-                view.hoveredPortId
-            ))
+        if (input.leftMouseReleased)
         {
-            const int edgeId = graph::AddEdge(
-                graph,
-                view.wireStartNodeId,
-                view.wireStartPortId,
-                view.hoveredPortNodeId,
-                view.hoveredPortId
-            );
+            const bool canConnect =
+                view.hoveredPortNodeId >= 0 &&
+                view.hoveredPortId >= 0 &&
+                graph::CanConnect(
+                    graph,
+                    view.wireStartNodeId,
+                    view.wireStartPortId,
+                    view.hoveredPortNodeId,
+                    view.hoveredPortId
+                );
 
-            if (edgeId > 0)
+            if (canConnect)
             {
-                view.selectedEdgeId = edgeId;
-                view.selectedNodeId = -1;
-                graphChanged = true;
+                const int edgeId = graph::AddEdge(
+                    graph,
+                    view.wireStartNodeId,
+                    view.wireStartPortId,
+                    view.hoveredPortNodeId,
+                    view.hoveredPortId
+                );
+
+                if (edgeId > 0)
+                {
+                    view.selectedEdgeId = edgeId;
+                    view.selectedNodeId = -1;
+                    graphChanged = true;
+                }
+            }
+            else
+            {
+                view.lastWireDropFailure = ClassifyWireDropFailure(
+                    graph,
+                    view.wireStartNodeId,
+                    view.wireStartPortId,
+                    view.hoveredPortNodeId,
+                    view.hoveredPortId
+                );
             }
         }
 

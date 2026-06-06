@@ -13,6 +13,18 @@ class Renderer2D;
 namespace editor
 {
 
+enum class WireDropFailureReason
+{
+    None,
+    EmptyTarget,
+    MissingEndpoint,
+    InvalidDirection,
+    SelfConnection,
+    ResourceMismatch,
+    DuplicateConnection,
+    InvalidTarget
+};
+
 struct NodeVisual
 {
     int nodeId = 0;
@@ -44,6 +56,8 @@ struct GraphViewState
     int wireStartNodeId = -1;
     int wireStartPortId = -1;
     Vec2 wirePreviewCanvasPosition{};
+
+    WireDropFailureReason lastWireDropFailure = WireDropFailureReason::None;
 
     Vec2 dragStartCanvasPosition{};
     Vec2 dragStartNodePosition{};
