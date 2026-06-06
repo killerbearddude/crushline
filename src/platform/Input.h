@@ -20,4 +20,16 @@ struct InputState
     bool keyEscapePressed = false;
     bool keyCtrlDown = false;
     bool keyShiftDown = false;
+
+    void BeginFrame()
+    {
+        mouseDelta = {};
+        mouseWheelDelta = 0.0f;
+
+        leftMousePressed = false;
+        leftMouseReleased = false;
+
+        keyDeletePressed = false;
+        keyEscapePressed = false;
+    }
 };
