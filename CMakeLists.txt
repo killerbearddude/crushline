@@ -60,6 +60,7 @@ add_executable(crushline
     tests/GraphEvaluatorTest.cpp
     tests/GraphConnectionTest.cpp
     tests/ProductionCatalogTest.cpp
+    tests/GraphRecipeNodeTest.cpp
     src/platform/Window.cpp
     src/platform/Time.cpp
     src/renderer/FontAtlas.cpp
@@ -89,4 +90,5 @@ if (BUILD_TESTING)
     add_test(NAME graph_evaluator COMMAND crushline --graph-evaluator-test)
     add_test(NAME graph_connection COMMAND crushline --graph-connection-test)
     add_test(NAME production_catalog COMMAND crushline --production-catalog-test)
+    add_test(NAME graph_recipe_node COMMAND crushline --graph-recipe-node-test)
 endif()

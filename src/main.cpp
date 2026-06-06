@@ -1,3 +1,7 @@
+// Application entry point and command-line test dispatcher. Runtime mode
+// starts the SDL/OpenGL app, while test flags call focused graph/catalog tests
+// without launching the interactive editor loop.
+
 #include <SDL3/SDL_main.h>
 
 #include "app/App.h"
@@ -11,6 +15,7 @@ int RunGraphSerializerRoundTripTest();
 int RunGraphEvaluatorTest();
 int RunGraphConnectionTest();
 int RunProductionCatalogTest();
+int RunGraphRecipeNodeTest();
 
 namespace
 {
@@ -34,6 +39,7 @@ void PrintUsage(const char* executable)
         << "  --graph-evaluator-test       Verify graph simulation metrics.\n"
         << "  --graph-connection-test      Verify graph connection validation rules.\n"
         << "  --production-catalog-test    Verify production resource/machine/recipe catalogs.\n"
+        << "  --graph-recipe-node-test     Verify recipe-driven graph node port generation.\n"
         << "  --frames <count>   Run for a fixed positive number of frames.\n"
         << "  --help, -h         Show this help text.\n";
 }
@@ -78,6 +84,11 @@ int main(int argc, char** argv)
         if (arg == "--production-catalog-test")
         {
             return RunProductionCatalogTest();
+        }
+
+        if (arg == "--graph-recipe-node-test")
+        {
+            return RunGraphRecipeNodeTest();
         }
 
         if (arg == "--frames")

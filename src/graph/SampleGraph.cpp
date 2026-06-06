@@ -1,3 +1,7 @@
+// Builds the current hand-authored sample graph used by the interactive
+// prototype. This remains a legacy dashboard sample until a later patch replaces
+// it with a fully recipe-generated Tier 0 production chain.
+
 #include "graph/SampleGraph.h"
 
 #include "graph/GraphDocument.h"
@@ -84,12 +88,12 @@ GraphDocument CreateSampleFactoryGraph()
         node->warningText = "Waste capacity above 90%";
     }
 
-    AddEdge(graph, ironOre, ironOreOut, crusher, crusherIn);
-    AddEdge(graph, crusher, crusherOut, washer, washerIn);
-    AddEdge(graph, washer, washerOut, furnace, furnaceIn);
-    AddEdge(graph, furnace, furnaceOut, ironIngot, ironIngotIn);
-    AddEdge(graph, washer, washerWaste, slurry, slurryIn);
-    AddEdge(graph, slurry, slurryOut, wasteStorage, wasteIn);
+    (void)AddEdge(graph, ironOre, ironOreOut, crusher, crusherIn);
+    (void)AddEdge(graph, crusher, crusherOut, washer, washerIn);
+    (void)AddEdge(graph, washer, washerOut, furnace, furnaceIn);
+    (void)AddEdge(graph, furnace, furnaceOut, ironIngot, ironIngotIn);
+    (void)AddEdge(graph, washer, washerWaste, slurry, slurryIn);
+    (void)AddEdge(graph, slurry, slurryOut, wasteStorage, wasteIn);
 
     return graph;
 }

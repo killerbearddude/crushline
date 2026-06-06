@@ -1,3 +1,7 @@
+// Implements JSON save/load for graph documents and graph-view state.
+// Serializer support is kept in sync with graph model fields so recipe-driven
+// machine identity and generated production ports survive roundtrips.
+
 #include "graph/GraphSerializer.h"
 
 #include <nlohmann/json.hpp>
@@ -130,7 +134,9 @@ Json SerializePort(const GraphPort& port)
         {"id", port.id},
         {"name", port.name},
         {"resource", ToString(port.resource)},
-        {"direction", ToString(port.direction)}
+        {"direction", ToString(port.direction)},
+        {"productionResourceId", port.productionResourceId},
+        {"isByproduct", port.isByproduct}
     };
 }
 
@@ -140,7 +146,9 @@ GraphPort DeserializePort(const Json& value)
         .id = value.at("id").get<int>(),
         .name = value.at("name").get<std::string>(),
         .resource = ParseResourceType(value.at("resource").get<std::string>()),
-        .direction = ParsePortDirection(value.at("direction").get<std::string>())
+        .direction = ParsePortDirection(value.at("direction").get<std::string>()),
+        .productionResourceId = value.value("productionResourceId", InvalidResourceId),
+        .isByproduct = value.value("isByproduct", false)
     };
 }
 
@@ -162,6 +170,8 @@ Json SerializeNode(const GraphNode& node)
         {"id", node.id},
         {"type", ToString(node.type)},
         {"name", node.name},
+        {"machineId", node.machineId},
+        {"recipeId", node.recipeId},
         {"throughput", node.throughput},
         {"capacity", node.capacity},
         {"efficiency", node.efficiency},
@@ -179,6 +189,8 @@ GraphNode DeserializeNode(const Json& value)
         .id = value.at("id").get<int>(),
         .type = ParseNodeType(value.at("type").get<std::string>()),
         .name = value.at("name").get<std::string>(),
+        .machineId = value.value("machineId", InvalidMachineId),
+        .recipeId = value.value("recipeId", InvalidRecipeId),
         .throughput = value.value("throughput", 0.0f),
         .capacity = value.value("capacity", 0.0f),
         .efficiency = value.value("efficiency", 1.0f),

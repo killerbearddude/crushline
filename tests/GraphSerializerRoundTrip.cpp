@@ -48,7 +48,9 @@ bool CheckPort(const graph::GraphPort& actual, const graph::GraphPort& expected)
         Check(actual.id == expected.id, "port id mismatch") &&
         Check(actual.name == expected.name, "port name mismatch") &&
         Check(actual.resource == expected.resource, "port resource mismatch") &&
-        Check(actual.direction == expected.direction, "port direction mismatch");
+        Check(actual.direction == expected.direction, "port direction mismatch") &&
+        Check(actual.productionResourceId == expected.productionResourceId, "port production resource id mismatch") &&
+        Check(actual.isByproduct == expected.isByproduct, "port byproduct flag mismatch");
 }
 
 bool CheckNode(const graph::GraphNode& actual, const graph::GraphNode& expected)
@@ -56,6 +58,8 @@ bool CheckNode(const graph::GraphNode& actual, const graph::GraphNode& expected)
     if (!Check(actual.id == expected.id, "node id mismatch") ||
         !Check(actual.type == expected.type, "node type mismatch") ||
         !Check(actual.name == expected.name, "node name mismatch") ||
+        !Check(actual.machineId == expected.machineId, "node machine id mismatch") ||
+        !Check(actual.recipeId == expected.recipeId, "node recipe id mismatch") ||
         !Check(NearlyEqual(actual.throughput, expected.throughput), "node throughput mismatch") ||
         !Check(NearlyEqual(actual.capacity, expected.capacity), "node capacity mismatch") ||
         !Check(NearlyEqual(actual.efficiency, expected.efficiency), "node efficiency mismatch") ||
