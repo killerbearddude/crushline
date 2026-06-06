@@ -29,6 +29,7 @@ add_executable(crushline
     src/app/App.cpp
     src/platform/Window.cpp
     src/platform/Time.cpp
+    src/renderer/Renderer2D.cpp
 )
 
 target_include_directories(crushline PRIVATE src)

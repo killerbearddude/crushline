@@ -2,6 +2,7 @@
 
 #include "platform/Input.h"
 #include "platform/Window.h"
+#include "renderer/Renderer2D.h"
 
 struct AppConfig
 {
@@ -30,6 +31,7 @@ private:
 
     Window m_window;
     InputState m_input;
+    Renderer2D m_renderer;
 
     bool m_shouldClose = false;
 
