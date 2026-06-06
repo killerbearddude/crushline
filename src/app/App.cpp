@@ -27,9 +27,9 @@ float GridStart(float origin, float offset, float spacing)
     return origin + wrapped;
 }
 
-void DrawGrid(Renderer2D& renderer, Rect rect, const UiTheme& theme, Vec2 cameraOffset)
+void DrawGrid(Renderer2D& renderer, Rect rect, const UiTheme& theme, Vec2 cameraOffset, float zoom)
 {
-    const float spacing = theme.gridSpacing;
+    const float spacing = theme.gridSpacing * zoom;
     const float majorSpacing = spacing * 4.0f;
     const float right = rect.x + rect.w;
     const float bottom = rect.y + rect.h;
@@ -199,7 +199,7 @@ void App::RunFrame()
     DrawPanel(m_renderer, regions.topBar, m_theme, m_theme.panelAlt);
     DrawPanel(m_renderer, regions.leftPanel, m_theme, m_theme.panel);
     m_renderer.DrawRect(regions.graphCanvas, m_theme.canvas);
-    DrawGrid(m_renderer, regions.graphCanvas, m_theme, m_graphView.cameraOffset);
+    DrawGrid(m_renderer, regions.graphCanvas, m_theme, m_graphView.cameraOffset, m_graphView.zoom);
     m_renderer.DrawRectOutline(regions.graphCanvas, m_theme.panelBorder, m_theme.borderThickness);
     DrawPanel(m_renderer, regions.rightPanel, m_theme, m_theme.panel);
     DrawPanel(m_renderer, regions.inspector, m_theme, m_theme.panel);
@@ -229,6 +229,7 @@ void App::RunFrame()
             << " hoveredNode=" << m_graphView.hoveredNodeId
             << " draggingNode=" << m_graphView.draggingNodeId
             << " panning=" << (m_graphView.panningCanvas ? 1 : 0)
+            << " zoom=" << m_graphView.zoom
             << " camera=(" << m_graphView.cameraOffset.x << ", " << m_graphView.cameraOffset.y << ")"
             << " drawCommands=" << drawCommandCount
             << "\n";

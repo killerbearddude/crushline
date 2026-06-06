@@ -321,7 +321,7 @@ void UpdateGraphViewInteraction(
     Rect canvasRect
 )
 {
-    const Vec2 canvasMouse = ScreenToCanvas(input.mousePosition, view, canvasRect);
+    Vec2 canvasMouse = ScreenToCanvas(input.mousePosition, view, canvasRect);
 
     if (view.panningCanvas)
     {
@@ -377,6 +377,29 @@ void UpdateGraphViewInteraction(
         view.hoveredNodeId = -1;
         SyncSelectedNodeVisuals(view);
         return;
+    }
+
+    if (std::abs(input.mouseWheelDelta) > 0.0f)
+    {
+        const Vec2 anchorCanvas = canvasMouse;
+        const float previousZoom = view.zoom;
+        const float zoomFactor = std::pow(1.12f, input.mouseWheelDelta);
+        view.zoom = std::clamp(previousZoom * zoomFactor, view.minZoom, view.maxZoom);
+
+        if (view.zoom != previousZoom)
+        {
+            const Vec2 localMouse = {
+                input.mousePosition.x - canvasRect.x,
+                input.mousePosition.y - canvasRect.y
+            };
+
+            view.cameraOffset = {
+                localMouse.x - anchorCanvas.x * view.zoom,
+                localMouse.y - anchorCanvas.y * view.zoom
+            };
+
+            canvasMouse = ScreenToCanvas(input.mousePosition, view, canvasRect);
+        }
     }
 
     if (input.middleMousePressed)

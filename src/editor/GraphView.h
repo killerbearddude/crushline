@@ -25,6 +25,8 @@ struct GraphViewState
 {
     Vec2 cameraOffset = {0.0f, 0.0f};
     float zoom = 1.0f;
+    float minZoom = 0.45f;
+    float maxZoom = 2.25f;
 
     std::unordered_map<int, NodeVisual> nodeVisuals{};
 
