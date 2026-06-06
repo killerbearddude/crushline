@@ -28,6 +28,9 @@ add_executable(crushline
     src/main.cpp
     src/app/App.cpp
     src/app/DashboardLayout.cpp
+    src/editor/GraphView.cpp
+    src/graph/GraphDocument.cpp
+    src/graph/SampleGraph.cpp
     src/platform/Window.cpp
     src/platform/Time.cpp
     src/renderer/Renderer2D.cpp

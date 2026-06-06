@@ -1,6 +1,7 @@
 #include "app/App.h"
 
 #include "platform/Time.h"
+#include "graph/SampleGraph.h"
 
 #include <iostream>
 
@@ -131,6 +132,9 @@ bool App::Initialize(const AppConfig& config)
         return false;
     }
 
+    m_graph = graph::CreateSampleFactoryGraph();
+    m_graphView = editor::CreateSampleFactoryGraphView(m_graph);
+
     m_lastTimeSeconds = GetSeconds();
 
     std::cout
@@ -185,14 +189,8 @@ void App::RunFrame()
     DrawMetricRows(m_renderer, regions.rightPanel, m_theme, 7);
     DrawInspectorBands(m_renderer, regions.inspector, m_theme);
 
-    m_renderer.DrawLine(
-        {regions.graphCanvas.x + 24.0f, regions.graphCanvas.y + 24.0f},
-        {regions.graphCanvas.x + regions.graphCanvas.w - 24.0f, regions.graphCanvas.y + regions.graphCanvas.h - 24.0f},
-        m_theme.accentCyan,
-        2.0f
-    );
-    m_renderer.DrawCircle({regions.graphCanvas.x + 24.0f, regions.graphCanvas.y + 24.0f}, 5.0f, m_theme.accentCyan);
-    m_renderer.DrawCircle({regions.graphCanvas.x + regions.graphCanvas.w - 24.0f, regions.graphCanvas.y + regions.graphCanvas.h - 24.0f}, 5.0f, m_theme.accentCyan);
+    editor::EnsureNodeVisuals(m_graphView, m_graph);
+    editor::DrawGraphView(m_renderer, m_graph, m_graphView, regions.graphCanvas, m_theme);
 
     const std::size_t drawCommandCount = m_renderer.CommandCount();
     m_renderer.Flush();

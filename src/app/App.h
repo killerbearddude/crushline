@@ -1,6 +1,8 @@
 #pragma once
 
 #include "app/DashboardLayout.h"
+#include "editor/GraphView.h"
+#include "graph/GraphTypes.h"
 #include "platform/Input.h"
 #include "platform/Window.h"
 #include "renderer/Renderer2D.h"
@@ -32,6 +34,8 @@ private:
     AppConfig m_config;
     DashboardLayoutMetrics m_layoutMetrics;
     UiTheme m_theme = MakeIndustrialDarkTheme();
+    graph::GraphDocument m_graph;
+    editor::GraphViewState m_graphView;
 
     Window m_window;
     InputState m_input;

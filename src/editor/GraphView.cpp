@@ -1,0 +1,294 @@
+#include "editor/GraphView.h"
+
+#include "graph/GraphDocument.h"
+#include "renderer/Renderer2D.h"
+
+#include <algorithm>
+#include <cmath>
+#include <iterator>
+
+namespace editor
+{
+namespace
+{
+Vec2 CanvasToScreen(Vec2 canvas, const GraphViewState& view, Rect canvasRect)
+{
+    return {
+        canvasRect.x + canvas.x * view.zoom + view.cameraOffset.x,
+        canvasRect.y + canvas.y * view.zoom + view.cameraOffset.y
+    };
+}
+
+Rect CanvasToScreen(Rect rect, const GraphViewState& view, Rect canvasRect)
+{
+    const Vec2 position = CanvasToScreen(Vec2{rect.x, rect.y}, view, canvasRect);
+    return {
+        position.x,
+        position.y,
+        rect.w * view.zoom,
+        rect.h * view.zoom
+    };
+}
+
+Color ResourceColor(graph::ResourceType resource, const UiTheme& theme)
+{
+    switch (resource)
+    {
+        case graph::ResourceType::IronOre:
+        case graph::ResourceType::CrushedOre:
+        case graph::ResourceType::WashedOre:
+        case graph::ResourceType::IronIngot:
+            return theme.accentCyan;
+
+        case graph::ResourceType::Slurry:
+        case graph::ResourceType::Tailings:
+        case graph::ResourceType::Waste:
+            return theme.accentAmber;
+
+        case graph::ResourceType::Power:
+            return theme.accentRed;
+
+        default:
+            return theme.accentGreen;
+    }
+}
+
+Color NodeAccent(const graph::GraphNode& node, const UiTheme& theme)
+{
+    if (node.warning)
+    {
+        return theme.accentAmber;
+    }
+
+    switch (node.type)
+    {
+        case graph::NodeType::Source:
+            return theme.accentGreen;
+        case graph::NodeType::Storage:
+            return theme.accentAmber;
+        case graph::NodeType::Output:
+        case graph::NodeType::Contract:
+            return theme.accentCyan;
+        case graph::NodeType::Warning:
+            return theme.accentRed;
+        default:
+            return theme.accentCyan;
+    }
+}
+
+int PortIndex(const graph::GraphNode& node, int portId)
+{
+    for (int i = 0; i < static_cast<int>(node.inputs.size()); ++i)
+    {
+        if (node.inputs[static_cast<std::size_t>(i)].id == portId)
+        {
+            return i;
+        }
+    }
+
+    for (int i = 0; i < static_cast<int>(node.outputs.size()); ++i)
+    {
+        if (node.outputs[static_cast<std::size_t>(i)].id == portId)
+        {
+            return i;
+        }
+    }
+
+    return 0;
+}
+
+Vec2 PortPosition(const NodeVisual& visual, const graph::GraphPort& port, int index)
+{
+    const float y = visual.position.y + 30.0f + static_cast<float>(index) * 16.0f;
+
+    if (port.direction == graph::PortDirection::Input)
+    {
+        return {visual.position.x, y};
+    }
+
+    return {visual.position.x + visual.size.x, y};
+}
+
+void DrawBezierApprox(Renderer2D& renderer, Vec2 from, Vec2 to, Color color, float thickness)
+{
+    const float dx = std::abs(to.x - from.x);
+    const float handle = std::max(56.0f, dx * 0.45f);
+
+    const Vec2 p0 = from;
+    const Vec2 p1 = {from.x + handle, from.y};
+    const Vec2 p2 = {to.x - handle, to.y};
+    const Vec2 p3 = to;
+
+    Vec2 previous = p0;
+
+    constexpr int segments = 20;
+    for (int i = 1; i <= segments; ++i)
+    {
+        const float t = static_cast<float>(i) / static_cast<float>(segments);
+        const float u = 1.0f - t;
+
+        const float a = u * u * u;
+        const float b = 3.0f * u * u * t;
+        const float c = 3.0f * u * t * t;
+        const float d = t * t * t;
+
+        const Vec2 point = {
+            a * p0.x + b * p1.x + c * p2.x + d * p3.x,
+            a * p0.y + b * p1.y + c * p2.y + d * p3.y
+        };
+
+        renderer.DrawLine(previous, point, color, thickness);
+        previous = point;
+    }
+}
+
+void DrawNode(Renderer2D& renderer, const graph::GraphNode& node, const NodeVisual& visual, const GraphViewState& view, Rect canvasRect, const UiTheme& theme)
+{
+    const Rect canvasNode = {
+        visual.position.x,
+        visual.position.y,
+        visual.size.x,
+        visual.size.y
+    };
+
+    const Rect nodeRect = CanvasToScreen(canvasNode, view, canvasRect);
+    const Rect header = {nodeRect.x, nodeRect.y, nodeRect.w, 24.0f * view.zoom};
+    const Color accent = NodeAccent(node, theme);
+
+    renderer.DrawRect(nodeRect, theme.nodeBody);
+    renderer.DrawRect(header, theme.nodeHeader);
+    renderer.DrawRectOutline(nodeRect, visual.selected ? theme.nodeSelected : theme.nodeBorder, visual.selected ? 2.0f : 1.0f);
+    renderer.DrawRect({nodeRect.x + 8.0f, nodeRect.y + 8.0f, 4.0f, 9.0f}, accent);
+
+    const float fill = node.capacity > 0.0f ? std::min(node.throughput / node.capacity, 1.0f) : node.efficiency;
+    const Rect barTrack = {nodeRect.x + 12.0f, nodeRect.y + nodeRect.h - 12.0f, nodeRect.w - 24.0f, 3.0f};
+    renderer.DrawRect(barTrack, theme.panelHighlight);
+    renderer.DrawRect({barTrack.x, barTrack.y, barTrack.w * fill, barTrack.h}, accent);
+
+    if (node.warning)
+    {
+        renderer.DrawCircle({nodeRect.x + nodeRect.w - 12.0f, nodeRect.y + 12.0f}, 4.0f, theme.accentAmber);
+    }
+
+    for (int i = 0; i < static_cast<int>(node.inputs.size()); ++i)
+    {
+        const graph::GraphPort& port = node.inputs[static_cast<std::size_t>(i)];
+        const Vec2 p = CanvasToScreen(PortPosition(visual, port, i), view, canvasRect);
+        renderer.DrawCircle(p, 4.0f, ResourceColor(port.resource, theme));
+        renderer.DrawLine({p.x + 8.0f, p.y}, {p.x + 34.0f, p.y}, theme.panelHighlight, 1.0f);
+    }
+
+    for (int i = 0; i < static_cast<int>(node.outputs.size()); ++i)
+    {
+        const graph::GraphPort& port = node.outputs[static_cast<std::size_t>(i)];
+        const Vec2 p = CanvasToScreen(PortPosition(visual, port, i), view, canvasRect);
+        renderer.DrawCircle(p, 4.0f, ResourceColor(port.resource, theme));
+        renderer.DrawLine({p.x - 34.0f, p.y}, {p.x - 8.0f, p.y}, theme.panelHighlight, 1.0f);
+    }
+}
+}
+
+GraphViewState CreateSampleFactoryGraphView(const graph::GraphDocument& graph)
+{
+    GraphViewState view;
+
+    const Vec2 positions[] = {
+        {22.0f, 42.0f},
+        {190.0f, 42.0f},
+        {358.0f, 42.0f},
+        {550.0f, 42.0f},
+        {724.0f, 42.0f},
+        {358.0f, 158.0f},
+        {550.0f, 220.0f}
+    };
+
+    for (std::size_t i = 0; i < graph.nodes.size(); ++i)
+    {
+        const graph::GraphNode& node = graph.nodes[i];
+        const Vec2 position = i < std::size(positions)
+            ? positions[i]
+            : Vec2{22.0f + static_cast<float>(i) * 42.0f, 42.0f};
+
+        view.nodeVisuals[node.id] = NodeVisual{
+            .nodeId = node.id,
+            .position = position,
+            .size = node.outputs.size() > 1 ? Vec2{136.0f, 82.0f} : Vec2{128.0f, 68.0f},
+            .selected = node.warning
+        };
+
+        if (node.warning && view.selectedNodeId < 0)
+        {
+            view.selectedNodeId = node.id;
+        }
+    }
+
+    return view;
+}
+
+void EnsureNodeVisuals(GraphViewState& view, const graph::GraphDocument& graph)
+{
+    for (const graph::GraphNode& node : graph.nodes)
+    {
+        if (!view.nodeVisuals.contains(node.id))
+        {
+            view.nodeVisuals[node.id] = NodeVisual{
+                .nodeId = node.id,
+                .position = {32.0f + static_cast<float>(view.nodeVisuals.size()) * 24.0f, 64.0f},
+                .size = {128.0f, 68.0f},
+                .selected = false
+            };
+        }
+    }
+}
+
+void DrawGraphView(
+    Renderer2D& renderer,
+    const graph::GraphDocument& graph,
+    const GraphViewState& view,
+    Rect canvasRect,
+    const UiTheme& theme
+)
+{
+    for (const graph::GraphEdge& edge : graph.edges)
+    {
+        const graph::GraphNode* fromNode = graph::FindNode(graph, edge.fromNodeId);
+        const graph::GraphNode* toNode = graph::FindNode(graph, edge.toNodeId);
+        const graph::GraphPort* fromPort = graph::FindPort(graph, edge.fromNodeId, edge.fromPortId);
+        const graph::GraphPort* toPort = graph::FindPort(graph, edge.toNodeId, edge.toPortId);
+
+        if (fromNode == nullptr || toNode == nullptr || fromPort == nullptr || toPort == nullptr)
+        {
+            continue;
+        }
+
+        const auto fromVisualIt = view.nodeVisuals.find(fromNode->id);
+        const auto toVisualIt = view.nodeVisuals.find(toNode->id);
+
+        if (fromVisualIt == view.nodeVisuals.end() || toVisualIt == view.nodeVisuals.end())
+        {
+            continue;
+        }
+
+        const int fromIndex = PortIndex(*fromNode, fromPort->id);
+        const int toIndex = PortIndex(*toNode, toPort->id);
+
+        const Vec2 from = CanvasToScreen(PortPosition(fromVisualIt->second, *fromPort, fromIndex), view, canvasRect);
+        const Vec2 to = CanvasToScreen(PortPosition(toVisualIt->second, *toPort, toIndex), view, canvasRect);
+
+        DrawBezierApprox(renderer, from, to, ResourceColor(fromPort->resource, theme), 2.0f);
+    }
+
+    for (const graph::GraphNode& node : graph.nodes)
+    {
+        const auto visualIt = view.nodeVisuals.find(node.id);
+
+        if (visualIt == view.nodeVisuals.end())
+        {
+            continue;
+        }
+
+        DrawNode(renderer, node, visualIt->second, view, canvasRect, theme);
+    }
+}
+
+} // namespace editor
