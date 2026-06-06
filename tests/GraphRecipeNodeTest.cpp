@@ -4,6 +4,7 @@
 // graph before the production evaluator starts depending on this model.
 
 #include "graph/GraphDocument.h"
+#include "graph/SampleGraph.h"
 
 #include <cstddef>
 #include <iostream>
@@ -65,6 +66,83 @@ const graph::GraphPort* FindOutputByProductionResource(
     }
 
     return nullptr;
+}
+
+
+const graph::GraphNode* FindNodeByRecipe(
+    const graph::GraphDocument& graph,
+    graph::MachineId machineId,
+    graph::RecipeId recipeId
+)
+{
+    for (const graph::GraphNode& node : graph.nodes)
+    {
+        if (node.machineId == machineId && node.recipeId == recipeId)
+        {
+            return &node;
+        }
+    }
+
+    return nullptr;
+}
+
+const graph::GraphNode* FindOutputNodeForResource(
+    const graph::GraphDocument& graph,
+    graph::ResourceId resourceId
+)
+{
+    for (const graph::GraphNode& node : graph.nodes)
+    {
+        if (node.type != graph::NodeType::Output)
+        {
+            continue;
+        }
+
+        if (FindInputByProductionResource(node, resourceId) != nullptr)
+        {
+            return &node;
+        }
+    }
+
+    return nullptr;
+}
+
+bool HasEdge(
+    const graph::GraphDocument& graph,
+    int fromNodeId,
+    graph::ResourceId fromResourceId,
+    int toNodeId,
+    graph::ResourceId toResourceId
+)
+{
+    const graph::GraphNode* fromNode = graph::FindNode(graph, fromNodeId);
+    const graph::GraphNode* toNode = graph::FindNode(graph, toNodeId);
+
+    if (fromNode == nullptr || toNode == nullptr)
+    {
+        return false;
+    }
+
+    const graph::GraphPort* fromPort = FindOutputByProductionResource(*fromNode, fromResourceId);
+    const graph::GraphPort* toPort = FindInputByProductionResource(*toNode, toResourceId);
+
+    if (fromPort == nullptr || toPort == nullptr)
+    {
+        return false;
+    }
+
+    for (const graph::GraphEdge& edge : graph.edges)
+    {
+        if (edge.fromNodeId == fromNodeId &&
+            edge.fromPortId == fromPort->id &&
+            edge.toNodeId == toNodeId &&
+            edge.toPortId == toPort->id)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 bool CheckGeneratedPort(
@@ -377,6 +455,77 @@ bool CheckGeneratedPortsPreserveConnectionValidation()
         Check(graph::CanConnect(graph, washerId, washerSlurryOutput->id, wasteSinkId, wasteSinkSlurryInput->id), "slurry byproduct should connect to waste sink") &&
         Check(graph::AddEdge(graph, washerId, washerSlurryOutput->id, wasteSinkId, wasteSinkSlurryInput->id) != 0, "slurry sink edge should be created");
 }
+
+bool CheckSampleGraphUsesRecipeDrivenTier0Chain()
+{
+    // Protects the startup sample from drifting back to hand-authored legacy
+    // ports. The sample should demonstrate the Tier 0 puzzle chain using catalog
+    // recipe nodes while a temporary output node stands in for future objectives.
+    const graph::GraphDocument graph = graph::CreateSampleFactoryGraph();
+
+    const graph::GraphNode* ironSource = FindNodeByRecipe(
+        graph,
+        graph::production_ids::ResourceSource,
+        graph::production_ids::ExtractIronOre
+    );
+    const graph::GraphNode* waterSource = FindNodeByRecipe(
+        graph,
+        graph::production_ids::ResourceSource,
+        graph::production_ids::SupplyWater
+    );
+    const graph::GraphNode* crusher = FindNodeByRecipe(
+        graph,
+        graph::production_ids::Crusher,
+        graph::production_ids::CrushIronOre
+    );
+    const graph::GraphNode* washer = FindNodeByRecipe(
+        graph,
+        graph::production_ids::Washer,
+        graph::production_ids::WashCrushedIronOre
+    );
+    const graph::GraphNode* smelter = FindNodeByRecipe(
+        graph,
+        graph::production_ids::Smelter,
+        graph::production_ids::SmeltWashedIronOre
+    );
+    const graph::GraphNode* wasteSink = FindNodeByRecipe(
+        graph,
+        graph::production_ids::WasteSink,
+        graph::production_ids::StoreIronSlurry
+    );
+    const graph::GraphNode* ironTarget = FindOutputNodeForResource(graph, graph::production_ids::IronIngot);
+
+    if (!Check(ironSource != nullptr, "sample should include iron source recipe node") ||
+        !Check(waterSource != nullptr, "sample should include water source recipe node") ||
+        !Check(crusher != nullptr, "sample should include crusher recipe node") ||
+        !Check(washer != nullptr, "sample should include washer recipe node") ||
+        !Check(smelter != nullptr, "sample should include smelter recipe node") ||
+        !Check(wasteSink != nullptr, "sample should include waste sink recipe node") ||
+        !Check(ironTarget != nullptr, "sample should include temporary iron target node"))
+    {
+        return false;
+    }
+
+    const graph::GraphPort* slurryOutput = FindOutputByProductionResource(*washer, graph::production_ids::IronSlurry);
+    if (!Check(slurryOutput != nullptr, "sample washer should expose slurry byproduct output") ||
+        !Check(slurryOutput->isByproduct, "sample washer slurry output should be tagged as byproduct"))
+    {
+        return false;
+    }
+
+    return
+        Check(graph.nodes.size() == 7, "sample should contain six recipe nodes plus one temporary target") &&
+        Check(graph.edges.size() == 6, "sample should contain six Tier 0 production links") &&
+        Check(ironTarget->machineId == graph::InvalidMachineId, "temporary target should not pretend to be catalog machine") &&
+        Check(ironTarget->recipeId == graph::InvalidRecipeId, "temporary target should not pretend to be catalog recipe") &&
+        Check(HasEdge(graph, ironSource->id, graph::production_ids::IronOre, crusher->id, graph::production_ids::IronOre), "sample should connect iron source to crusher") &&
+        Check(HasEdge(graph, crusher->id, graph::production_ids::CrushedIronOre, washer->id, graph::production_ids::CrushedIronOre), "sample should connect crusher to washer") &&
+        Check(HasEdge(graph, waterSource->id, graph::production_ids::Water, washer->id, graph::production_ids::Water), "sample should connect water source to washer") &&
+        Check(HasEdge(graph, washer->id, graph::production_ids::WashedIronOre, smelter->id, graph::production_ids::WashedIronOre), "sample should connect washer to smelter") &&
+        Check(HasEdge(graph, smelter->id, graph::production_ids::IronIngot, ironTarget->id, graph::production_ids::IronIngot), "sample should connect smelter to temporary target") &&
+        Check(HasEdge(graph, washer->id, graph::production_ids::IronSlurry, wasteSink->id, graph::production_ids::IronSlurry), "sample should route slurry byproduct to waste sink");
+}
+
 } // namespace
 
 int RunGraphRecipeNodeTest()
@@ -385,7 +534,8 @@ int RunGraphRecipeNodeTest()
         !CheckWasherRecipeNodeWithByproduct() ||
         !CheckInvalidMachineRecipePairIsRejected() ||
         !CheckReconfigureRemovesStaleEdges() ||
-        !CheckGeneratedPortsPreserveConnectionValidation())
+        !CheckGeneratedPortsPreserveConnectionValidation() ||
+        !CheckSampleGraphUsesRecipeDrivenTier0Chain())
     {
         return 1;
     }

@@ -1,6 +1,6 @@
-// Builds the current hand-authored sample graph used by the interactive
-// prototype. This remains a legacy dashboard sample until a later patch replaces
-// it with a fully recipe-generated Tier 0 production chain.
+// Builds the interactive sample graph shown when Crushline starts. The sample
+// now uses Tier 0 production catalog recipes for all machine/process nodes while
+// keeping one temporary legacy target node until scenario objectives own targets.
 
 #include "graph/SampleGraph.h"
 
@@ -8,92 +8,216 @@
 
 namespace graph
 {
+namespace
+{
+const GraphPort* FindInputByProductionResource(const GraphNode& node, ResourceId resourceId)
+{
+    for (const GraphPort& port : node.inputs)
+    {
+        if (port.productionResourceId == resourceId)
+        {
+            return &port;
+        }
+    }
+
+    return nullptr;
+}
+
+const GraphPort* FindOutputByProductionResource(const GraphNode& node, ResourceId resourceId)
+{
+    for (const GraphPort& port : node.outputs)
+    {
+        if (port.productionResourceId == resourceId)
+        {
+            return &port;
+        }
+    }
+
+    return nullptr;
+}
+
+void RenameNode(GraphDocument& graph, int nodeId, const char* name)
+{
+    if (GraphNode* node = FindNode(graph, nodeId))
+    {
+        node->name = name;
+    }
+}
+
+void SetLegacyDashboardMetrics(
+    GraphDocument& graph,
+    int nodeId,
+    float throughput,
+    float capacity,
+    float efficiency
+)
+{
+    // TEMP: The current dashboard still reads legacy throughput/capacity fields.
+    // Recipe-rate evaluation will replace these values when the production
+    // evaluator becomes the source of truth.
+    if (GraphNode* node = FindNode(graph, nodeId))
+    {
+        node->throughput = throughput;
+        node->capacity = capacity;
+        node->efficiency = efficiency;
+    }
+}
+
+bool ConnectByProductionResource(
+    GraphDocument& graph,
+    int fromNodeId,
+    ResourceId fromResourceId,
+    int toNodeId,
+    ResourceId toResourceId
+)
+{
+    const GraphNode* fromNode = FindNode(graph, fromNodeId);
+    const GraphNode* toNode = FindNode(graph, toNodeId);
+
+    if (fromNode == nullptr || toNode == nullptr)
+    {
+        return false;
+    }
+
+    const GraphPort* fromPort = FindOutputByProductionResource(*fromNode, fromResourceId);
+    const GraphPort* toPort = FindInputByProductionResource(*toNode, toResourceId);
+
+    if (fromPort == nullptr || toPort == nullptr)
+    {
+        return false;
+    }
+
+    return AddEdge(graph, fromNodeId, fromPort->id, toNodeId, toPort->id) != 0;
+}
+} // namespace
 
 GraphDocument CreateSampleFactoryGraph()
 {
+    const ResourceCatalog resources;
+    const MachineCatalog machines;
+    const RecipeCatalog recipes;
+
     GraphDocument graph;
 
-    const int ironOre = AddNode(graph, NodeType::Source, "Iron Ore");
-    const int ironOreOut = AddOutputPort(graph, ironOre, "Iron Ore", ResourceType::IronOre);
-    if (GraphNode* node = FindNode(graph, ironOre))
-    {
-        node->throughput = 120.0f;
-        node->capacity = 120.0f;
-        node->efficiency = 1.0f;
-    }
+    const int ironOreSource = AddRecipeNode(
+        graph,
+        production_ids::ResourceSource,
+        production_ids::ExtractIronOre,
+        machines,
+        recipes,
+        resources
+    );
 
-    const int crusher = AddNode(graph, NodeType::Machine, "Crusher");
-    const int crusherIn = AddInputPort(graph, crusher, "Iron Ore", ResourceType::IronOre);
-    const int crusherOut = AddOutputPort(graph, crusher, "Crushed Ore", ResourceType::CrushedOre);
-    if (GraphNode* node = FindNode(graph, crusher))
-    {
-        node->throughput = 120.0f;
-        node->capacity = 120.0f;
-        node->efficiency = 0.90f;
-        node->powerUse = 120.0f;
-    }
+    const int waterSource = AddRecipeNode(
+        graph,
+        production_ids::ResourceSource,
+        production_ids::SupplyWater,
+        machines,
+        recipes,
+        resources
+    );
 
-    const int washer = AddNode(graph, NodeType::Machine, "Washer");
-    const int washerIn = AddInputPort(graph, washer, "Crushed Ore", ResourceType::CrushedOre);
-    const int washerOut = AddOutputPort(graph, washer, "Washed Ore", ResourceType::WashedOre);
-    const int washerWaste = AddOutputPort(graph, washer, "Slurry", ResourceType::Slurry);
-    if (GraphNode* node = FindNode(graph, washer))
-    {
-        node->throughput = 108.0f;
-        node->capacity = 120.0f;
-        node->efficiency = 0.90f;
-        node->powerUse = 120.0f;
-        node->warning = true;
-        node->warningText = "Clogged by high slurry content";
-    }
+    const int crusher = AddRecipeNode(
+        graph,
+        production_ids::Crusher,
+        production_ids::CrushIronOre,
+        machines,
+        recipes,
+        resources
+    );
 
-    const int furnace = AddNode(graph, NodeType::Machine, "Furnace");
-    const int furnaceIn = AddInputPort(graph, furnace, "Washed Ore", ResourceType::WashedOre);
-    const int furnaceOut = AddOutputPort(graph, furnace, "Iron Ingot", ResourceType::IronIngot);
-    if (GraphNode* node = FindNode(graph, furnace))
-    {
-        node->throughput = 92.0f;
-        node->capacity = 100.0f;
-        node->efficiency = 0.95f;
-        node->powerUse = 300.0f;
-    }
+    const int washer = AddRecipeNode(
+        graph,
+        production_ids::Washer,
+        production_ids::WashCrushedIronOre,
+        machines,
+        recipes,
+        resources
+    );
 
-    const int ironIngot = AddNode(graph, NodeType::Output, "Iron Ingot");
-    const int ironIngotIn = AddInputPort(graph, ironIngot, "Iron Ingot", ResourceType::IronIngot);
-    if (GraphNode* node = FindNode(graph, ironIngot))
-    {
-        node->throughput = 88.0f;
-        node->capacity = 100.0f;
-        node->efficiency = 0.88f;
-    }
+    const int smelter = AddRecipeNode(
+        graph,
+        production_ids::Smelter,
+        production_ids::SmeltWashedIronOre,
+        machines,
+        recipes,
+        resources
+    );
 
-    const int slurry = AddNode(graph, NodeType::Storage, "Slurry");
-    const int slurryIn = AddInputPort(graph, slurry, "Slurry", ResourceType::Slurry);
-    const int slurryOut = AddOutputPort(graph, slurry, "Slurry", ResourceType::Slurry);
-    if (GraphNode* node = FindNode(graph, slurry))
-    {
-        node->throughput = 12.0f;
-        node->capacity = 24.0f;
-        node->efficiency = 1.0f;
-    }
+    const int wasteSink = AddRecipeNode(
+        graph,
+        production_ids::WasteSink,
+        production_ids::StoreIronSlurry,
+        machines,
+        recipes,
+        resources
+    );
 
-    const int wasteStorage = AddNode(graph, NodeType::Storage, "Waste Storage");
-    const int wasteIn = AddInputPort(graph, wasteStorage, "Slurry", ResourceType::Slurry);
-    if (GraphNode* node = FindNode(graph, wasteStorage))
-    {
-        node->throughput = 23.0f;
-        node->capacity = 25.0f;
-        node->efficiency = 0.92f;
-        node->warning = true;
-        node->warningText = "Waste capacity above 90%";
-    }
+    // The objective system is not implemented yet, so the sample keeps a legacy
+    // output node as a visible endpoint for the Iron Ingot chain and old metrics.
+    const int ironIngotTarget = AddNode(graph, NodeType::Output, "Iron Ingot Target");
+    const int ironIngotInput = AddInputPort(
+        graph,
+        ironIngotTarget,
+        "Iron Ingot",
+        ResourceType::IronIngot,
+        production_ids::IronIngot
+    );
+    (void)ironIngotInput;
 
-    (void)AddEdge(graph, ironOre, ironOreOut, crusher, crusherIn);
-    (void)AddEdge(graph, crusher, crusherOut, washer, washerIn);
-    (void)AddEdge(graph, washer, washerOut, furnace, furnaceIn);
-    (void)AddEdge(graph, furnace, furnaceOut, ironIngot, ironIngotIn);
-    (void)AddEdge(graph, washer, washerWaste, slurry, slurryIn);
-    (void)AddEdge(graph, slurry, slurryOut, wasteStorage, wasteIn);
+    RenameNode(graph, ironOreSource, "Iron Ore Source");
+    RenameNode(graph, waterSource, "Water Source");
+
+    SetLegacyDashboardMetrics(graph, ironOreSource, 60.0f, 60.0f, 1.0f);
+    SetLegacyDashboardMetrics(graph, waterSource, 60.0f, 60.0f, 1.0f);
+    SetLegacyDashboardMetrics(graph, crusher, 60.0f, 60.0f, 1.0f);
+    SetLegacyDashboardMetrics(graph, washer, 50.0f, 60.0f, 1.0f);
+    SetLegacyDashboardMetrics(graph, smelter, 50.0f, 50.0f, 1.0f);
+    SetLegacyDashboardMetrics(graph, wasteSink, 10.0f, 10.0f, 1.0f);
+    SetLegacyDashboardMetrics(graph, ironIngotTarget, 50.0f, 50.0f, 1.0f);
+
+    (void)ConnectByProductionResource(
+        graph,
+        ironOreSource,
+        production_ids::IronOre,
+        crusher,
+        production_ids::IronOre
+    );
+    (void)ConnectByProductionResource(
+        graph,
+        crusher,
+        production_ids::CrushedIronOre,
+        washer,
+        production_ids::CrushedIronOre
+    );
+    (void)ConnectByProductionResource(
+        graph,
+        waterSource,
+        production_ids::Water,
+        washer,
+        production_ids::Water
+    );
+    (void)ConnectByProductionResource(
+        graph,
+        washer,
+        production_ids::WashedIronOre,
+        smelter,
+        production_ids::WashedIronOre
+    );
+    (void)ConnectByProductionResource(
+        graph,
+        smelter,
+        production_ids::IronIngot,
+        ironIngotTarget,
+        production_ids::IronIngot
+    );
+    (void)ConnectByProductionResource(
+        graph,
+        washer,
+        production_ids::IronSlurry,
+        wasteSink,
+        production_ids::IronSlurry
+    );
 
     return graph;
 }
