@@ -10,6 +10,7 @@
 int RunGraphSerializerRoundTripTest();
 int RunGraphEvaluatorTest();
 int RunGraphConnectionTest();
+int RunProductionCatalogTest();
 
 namespace
 {
@@ -32,6 +33,7 @@ void PrintUsage(const char* executable)
         << "  --serializer-roundtrip-test  Verify graph JSON save/load roundtrip.\n"
         << "  --graph-evaluator-test       Verify graph simulation metrics.\n"
         << "  --graph-connection-test      Verify graph connection validation rules.\n"
+        << "  --production-catalog-test    Verify production resource/machine/recipe catalogs.\n"
         << "  --frames <count>   Run for a fixed positive number of frames.\n"
         << "  --help, -h         Show this help text.\n";
 }
@@ -71,6 +73,11 @@ int main(int argc, char** argv)
         if (arg == "--graph-connection-test")
         {
             return RunGraphConnectionTest();
+        }
+
+        if (arg == "--production-catalog-test")
+        {
+            return RunProductionCatalogTest();
         }
 
         if (arg == "--frames")

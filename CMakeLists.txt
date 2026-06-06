@@ -51,11 +51,15 @@ add_executable(crushline
     src/editor/GraphView.cpp
     src/graph/GraphDocument.cpp
     src/graph/GraphEvaluator.cpp
+    src/graph/MachineCatalog.cpp
+    src/graph/RecipeCatalog.cpp
+    src/graph/ResourceCatalog.cpp
     src/graph/GraphSerializer.cpp
     src/graph/SampleGraph.cpp
     tests/GraphSerializerRoundTrip.cpp
     tests/GraphEvaluatorTest.cpp
     tests/GraphConnectionTest.cpp
+    tests/ProductionCatalogTest.cpp
     src/platform/Window.cpp
     src/platform/Time.cpp
     src/renderer/FontAtlas.cpp
@@ -84,4 +88,5 @@ if (BUILD_TESTING)
     add_test(NAME graph_serializer_roundtrip COMMAND crushline --serializer-roundtrip-test)
     add_test(NAME graph_evaluator COMMAND crushline --graph-evaluator-test)
     add_test(NAME graph_connection COMMAND crushline --graph-connection-test)
+    add_test(NAME production_catalog COMMAND crushline --production-catalog-test)
 endif()
