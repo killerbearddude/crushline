@@ -149,7 +149,7 @@ enum class MachineClass
 
 ### 4.3 Recipe Catalog
 
-Recipes are the heart of the game. A recipe declares required inputs, produced outputs, byproducts, waste products, compatible machine classes, processing time, and unlock tier.
+Recipes are the heart of the game. A recipe declares required input rates, produced output rates, byproduct rates, compatible machine classes, power use, and unlock tier.
 
 Examples:
 
@@ -161,10 +161,12 @@ Examples:
 - Electrolyze Water
 - Mix Sulfur Trioxide and Water Vapor
 
+The MVP uses a rate-based recipe model. All inputs, outputs, and byproducts are expressed as resources per minute. Batch quantities and recipe durations are future features and should not be mixed into the first evaluator implementation.
+
 Recipe definitions should eventually include:
 
 ```cpp
-struct ResourceAmount
+struct ResourceRate
 {
     ResourceId resourceId;
     float ratePerMinute = 0.0f;
@@ -179,14 +181,15 @@ struct RecipeDef
     MachineClass requiredMachineClass;
     TechTier tier;
 
-    std::vector<ResourceAmount> inputs;
-    std::vector<ResourceAmount> outputs;
-    std::vector<ResourceAmount> byproducts;
+    std::vector<ResourceRate> inputs;
+    std::vector<ResourceRate> outputs;
+    std::vector<ResourceRate> byproducts;
 
-    float durationSeconds = 1.0f;
     float powerKw = 0.0f;
 };
 ```
+
+Later, if batch crafting becomes important, the project should switch deliberately to a batch model with quantities plus duration instead of adding duration on top of rate-based recipe data.
 
 ### 4.4 Tech Tree
 
@@ -214,13 +217,14 @@ Tech unlocks should answer:
 
 ### 4.5 Scenario Objectives
 
-A scenario defines the target production problem.
+A scenario defines the target production problem. Objectives must support more than simple production targets because the Tier 0 MVP also requires byproduct handling.
 
 Example objectives:
 
 ```text
 Produce 60 Iron Ingots/min.
 Produce 20 Sulfuric Acid/min.
+Handle all produced Iron Slurry.
 Produce 10 Advanced Alloy/min while generating less than 5 Waste/min.
 Produce the target using no more than 8 machines.
 ```
@@ -228,10 +232,21 @@ Produce the target using no more than 8 machines.
 Suggested objective data:
 
 ```cpp
-struct ScenarioTarget
+enum class ObjectiveKind
 {
+    ProduceAtLeastRate,
+    HandleAllProduced,
+    MaxWasteRate,
+    MaxMachineCount,
+    MaxPowerKw
+};
+
+struct ScenarioObjective
+{
+    ObjectiveKind kind;
     ResourceId resourceId;
-    float requiredRatePerMinute = 0.0f;
+    float thresholdRatePerMinute = 0.0f;
+    int thresholdCount = 0;
 };
 
 struct ScenarioDef
@@ -240,9 +255,11 @@ struct ScenarioDef
     std::string key;
     std::string displayName;
     TechTier tier;
-    std::vector<ScenarioTarget> targets;
+    std::vector<ScenarioObjective> objectives;
 };
 ```
+
+For Tier 0, only `ProduceAtLeastRate` and `HandleAllProduced` are required. The remaining objective kinds are placeholders for later constraints and scoring goals.
 
 ---
 
@@ -579,7 +596,117 @@ The next architectural shift is to replace generic graph metrics with production
 
 ---
 
-## 10. Near-Term Patch Roadmap
+## 10. MVP Implementation Rules
+
+This section locks the first implementation contract for production-chain evaluation. It intentionally favors deterministic, conservative rules over a general factory simulator.
+
+### 10.1 Rate Model
+
+The MVP evaluator is rate-based.
+
+All recipe inputs, outputs, and byproducts are expressed as rates per minute. Recipe `durationSeconds` is not used in the MVP evaluator and should not be added to rate-based recipe definitions.
+
+A later batch model may use quantities plus duration, but that should be a deliberate schema change rather than a hybrid of both systems.
+
+### 10.2 Evaluator Model
+
+The first production evaluator is acyclic and deterministic.
+
+MVP evaluator rules:
+
+- Graphs are evaluated in topological order from source nodes toward target and sink nodes.
+- Cycles are invalid for MVP.
+- A source node is a machine node with a source recipe and no required inputs.
+- Each source recipe produces a fixed output rate.
+- Each non-source machine computes input availability from connected incoming edges.
+- Input satisfaction for each required resource is `availableRate / requiredRate`.
+- Node utilization is the minimum input satisfaction across all required inputs, clamped to `[0.0, 1.0]`.
+- Actual output rate is `declaredOutputRate * utilization`.
+- Actual byproduct rate is `declaredByproductRate * utilization`.
+- A node with utilization `0.0` is inactive or starved.
+- A node with utilization greater than `0.0` and less than `1.0` is under-supplied and should be reported as a bottleneck candidate.
+- A machine may not exceed its declared recipe rates in MVP.
+
+For MVP, recipe rates are the source of truth. Machine throughput modifiers can be added later after the evaluator behavior is proven.
+
+### 10.3 Port and Edge Rules
+
+MVP graph connections are intentionally strict.
+
+Rules:
+
+- Each input port accepts at most one incoming edge.
+- Each output port accepts at most one outgoing edge.
+- Edges must connect output ports to input ports.
+- Edges must connect matching `ResourceId` values.
+- Resource compatibility is exact by `ResourceId`, not merely by resource kind.
+- No implicit splitting exists in MVP.
+- No implicit merging exists in MVP.
+- Splitters, mergers, buffers, tanks, and storage-routing behavior are future machine types.
+
+These rules keep the first evaluator deterministic and make invalid graph states easier to explain to the player.
+
+### 10.4 Byproduct and Waste Rules
+
+Byproducts and waste are related but distinct.
+
+Definitions:
+
+```text
+Byproduct:
+A normal recipe output generated alongside the main output. It may be useful, reusable, or undesirable.
+
+Waste:
+A resource marked as undesirable for scoring or objective purposes.
+
+Waste Sink:
+A machine that consumes a specific waste or byproduct resource.
+
+Unmanaged Byproduct:
+A produced byproduct output with no valid downstream consumer or sink.
+```
+
+MVP byproduct rules:
+
+- Byproducts are output ports generated from recipe byproduct definitions.
+- Byproducts use the same edge compatibility rules as normal outputs.
+- For the Tier 0 scenario, all produced Iron Slurry must be connected to a valid Waste Sink input.
+- Unmanaged required byproducts make the scenario incomplete even if target production is satisfied.
+- Recipes may later mark some byproducts as ventable or discardable, but Tier 0 should not rely on that behavior.
+
+### 10.5 Objective Completion Rules
+
+Scenario objectives are typed conditions.
+
+Required Tier 0 objective kinds:
+
+```text
+ProduceAtLeastRate(resource, ratePerMinute)
+HandleAllProduced(resource)
+```
+
+The Tier 0 scenario is complete only when:
+
+- Iron Ingot production is at least `50/min`.
+- All produced Iron Slurry is consumed by a valid sink.
+
+A graph can be structurally valid while still failing scenario objectives because of underproduction, starvation, or unmanaged byproducts.
+
+### 10.6 Source and Sink Assumptions
+
+For MVP, sources and sinks are regular machine nodes with special recipes.
+
+Rules:
+
+- Resource sources are machine nodes using source recipes.
+- Source recipes have no inputs and produce fixed output rates.
+- Waste sinks are machine nodes using sink recipes.
+- Sink recipes consume specific byproduct or waste resources.
+- Scenario-specific source limits are future content unless explicitly encoded as source recipe rates.
+
+---
+
+## 11. Near-Term Patch Roadmap
 
 ### Patch 033: Add production catalog foundation
 
@@ -598,37 +725,47 @@ src/graph/RecipeCatalog.cpp
 tests/ProductionCatalogTest.cpp
 ```
 
-### Patch 034: Attach recipes to graph nodes
+Patch 033 should hardcode Tier 0 catalog content only. It should not implement a full tech tree yet.
+
+### Patch 034: Add MVP implementation rules to game design
+
+Lock the rate model, evaluator rules, port cardinality, byproduct handling, and typed objective model before additional evaluator code is written.
+
+### Patch 035: Clean production catalog comments and APIs
+
+Align the production catalog source files with the project commenting standard and C++ interface expectations without changing behavior.
+
+### Patch 036: Attach recipes to graph nodes
 
 Allow graph nodes to reference machine and recipe IDs. Generate node ports from recipe inputs, outputs, and byproducts.
 
-### Patch 035: Replace sample graph with recipe-driven Tier 0 chain
+### Patch 037: Replace sample graph with recipe-driven Tier 0 chain
 
 Replace the current sample factory graph with a graph built from catalog definitions.
 
-### Patch 036: Add scenario objective foundation
+### Patch 038: Add scenario objective foundation
 
-Add scenario targets such as "Produce 50 Iron Ingots/min" and "Handle all Iron Slurry."
+Add typed scenario objectives such as `ProduceAtLeastRate(Iron Ingot, 50/min)` and `HandleAllProduced(Iron Slurry)`.
 
-### Patch 037: Add production target evaluator
+### Patch 039: Add production target evaluator
 
-Evaluate produced resources, consumed resources, deficits, surplus, byproducts, and target satisfaction.
+Evaluate produced resources, consumed resources, deficits, surplus, byproducts, target satisfaction, and unmanaged byproduct state using the MVP evaluator rules.
 
-### Patch 038: Feed UI panels from production evaluation
+### Patch 040: Feed UI panels from production evaluation
 
 Replace plant-dashboard metrics with objective progress, deficits, bottlenecks, waste/byproduct status, and recipe-chain validation.
 
-### Patch 039: Add Add Node search menu foundation
+### Patch 041: Add Add Node search menu foundation
 
 Start a search-first node creation workflow inspired by node graph tools.
 
-### Patch 040: Add recipe selection for machine nodes
+### Patch 042: Add recipe selection for machine nodes
 
 Allow supported machines to switch between unlocked recipes.
 
 ---
 
-## 11. Design Non-Goals for Now
+## 12. Design Non-Goals for Now
 
 Do not build these yet:
 
@@ -645,7 +782,7 @@ The immediate goal is to prove the recipe graph puzzle loop.
 
 ---
 
-## 12. Success Criteria
+## 13. Success Criteria
 
 The next major milestone is successful when the player can:
 
