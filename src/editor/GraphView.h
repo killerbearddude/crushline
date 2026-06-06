@@ -34,6 +34,14 @@ struct GraphViewState
     int hoveredNodeId = -1;
     int draggingNodeId = -1;
 
+    int hoveredPortNodeId = -1;
+    int hoveredPortId = -1;
+
+    bool draggingWire = false;
+    int wireStartNodeId = -1;
+    int wireStartPortId = -1;
+    Vec2 wirePreviewCanvasPosition{};
+
     Vec2 dragStartCanvasPosition{};
     Vec2 dragStartNodePosition{};
 
@@ -49,7 +57,20 @@ Vec2 ScreenToCanvas(Vec2 screen, const GraphViewState& view, Rect canvasRect);
 Vec2 CanvasToScreen(Vec2 canvas, const GraphViewState& view, Rect canvasRect);
 Rect CanvasToScreen(Rect rect, const GraphViewState& view, Rect canvasRect);
 
+struct PortHit
+{
+    int nodeId = -1;
+    int portId = -1;
+};
+
 int HitTestNode(
+    const graph::GraphDocument& graph,
+    const GraphViewState& view,
+    Vec2 canvasPosition,
+    Rect canvasRect
+);
+
+PortHit HitTestPort(
     const graph::GraphDocument& graph,
     const GraphViewState& view,
     Vec2 canvasPosition,

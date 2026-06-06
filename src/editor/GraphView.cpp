@@ -114,6 +114,56 @@ bool IsNodeFullyInsideCanvas(const NodeVisual& visual, const GraphViewState& vie
     return RectFullyInside(CanvasToScreen(NodeRect(visual), view, canvasRect), canvasRect);
 }
 
+float Distance(Vec2 a, Vec2 b)
+{
+    const Vec2 delta = {a.x - b.x, a.y - b.y};
+    return std::sqrt(delta.x * delta.x + delta.y * delta.y);
+}
+
+void ClearHoveredPort(GraphViewState& view)
+{
+    view.hoveredPortNodeId = -1;
+    view.hoveredPortId = -1;
+}
+
+void SyncHoveredPort(GraphViewState& view, PortHit hit)
+{
+    view.hoveredPortNodeId = hit.nodeId;
+    view.hoveredPortId = hit.portId;
+}
+
+void ClearWireDrag(GraphViewState& view)
+{
+    view.draggingWire = false;
+    view.wireStartNodeId = -1;
+    view.wireStartPortId = -1;
+}
+
+bool IsOutputPort(const graph::GraphDocument& graph, int nodeId, int portId)
+{
+    const graph::GraphPort* port = graph::FindPort(graph, nodeId, portId);
+    return port != nullptr && port->direction == graph::PortDirection::Output;
+}
+
+Color WirePreviewColor(const graph::GraphDocument& graph, const GraphViewState& view, const UiTheme& theme)
+{
+    if (view.hoveredPortNodeId >= 0 && view.hoveredPortId >= 0)
+    {
+        const bool canConnect = graph::CanConnect(
+            graph,
+            view.wireStartNodeId,
+            view.wireStartPortId,
+            view.hoveredPortNodeId,
+            view.hoveredPortId
+        );
+
+        return canConnect ? theme.wireActive : theme.accentRed;
+    }
+
+    const graph::GraphPort* startPort = graph::FindPort(graph, view.wireStartNodeId, view.wireStartPortId);
+    return startPort == nullptr ? theme.wireActive : ResourceColor(startPort->resource, theme);
+}
+
 void SyncSelectedNodeVisuals(GraphViewState& view)
 {
     for (auto& [nodeId, visual] : view.nodeVisuals)
@@ -240,16 +290,32 @@ void DrawNode(Renderer2D& renderer, const graph::GraphNode& node, const NodeVisu
     {
         const graph::GraphPort& port = node.inputs[static_cast<std::size_t>(i)];
         const Vec2 p = CanvasToScreen(PortPosition(visual, port, i), view, canvasRect);
-        renderer.DrawCircle(p, 4.0f, ResourceColor(port.resource, theme));
-        renderer.DrawLine({p.x + 8.0f, p.y}, {p.x + 34.0f, p.y}, theme.panelHighlight, 1.0f);
+        const bool hoveredPort = view.hoveredPortNodeId == node.id && view.hoveredPortId == port.id;
+        const bool dragTarget = view.draggingWire && hoveredPort;
+
+        if (hoveredPort)
+        {
+            renderer.DrawCircle(p, dragTarget ? 8.0f : 7.0f, dragTarget ? theme.wireActive : theme.panelHighlight);
+        }
+
+        renderer.DrawCircle(p, hoveredPort ? 5.0f : 4.0f, ResourceColor(port.resource, theme));
+        renderer.DrawLine({p.x + 8.0f, p.y}, {p.x + 34.0f, p.y}, hoveredPort ? theme.wireActive : theme.panelHighlight, 1.0f);
     }
 
     for (int i = 0; i < static_cast<int>(node.outputs.size()); ++i)
     {
         const graph::GraphPort& port = node.outputs[static_cast<std::size_t>(i)];
         const Vec2 p = CanvasToScreen(PortPosition(visual, port, i), view, canvasRect);
-        renderer.DrawCircle(p, 4.0f, ResourceColor(port.resource, theme));
-        renderer.DrawLine({p.x - 34.0f, p.y}, {p.x - 8.0f, p.y}, theme.panelHighlight, 1.0f);
+        const bool hoveredPort = view.hoveredPortNodeId == node.id && view.hoveredPortId == port.id;
+        const bool dragSource = view.draggingWire && view.wireStartNodeId == node.id && view.wireStartPortId == port.id;
+
+        if (hoveredPort || dragSource)
+        {
+            renderer.DrawCircle(p, dragSource ? 8.0f : 7.0f, dragSource ? theme.wireActive : theme.panelHighlight);
+        }
+
+        renderer.DrawCircle(p, (hoveredPort || dragSource) ? 5.0f : 4.0f, ResourceColor(port.resource, theme));
+        renderer.DrawLine({p.x - 34.0f, p.y}, {p.x - 8.0f, p.y}, (hoveredPort || dragSource) ? theme.wireActive : theme.panelHighlight, 1.0f);
     }
 }
 }
@@ -338,6 +404,58 @@ int HitTestNode(
     return -1;
 }
 
+PortHit HitTestPort(
+    const graph::GraphDocument& graph,
+    const GraphViewState& view,
+    Vec2 canvasPosition,
+    Rect canvasRect
+)
+{
+    const float radius = 8.0f / std::max(view.zoom, 0.0001f);
+
+    for (auto it = graph.nodes.rbegin(); it != graph.nodes.rend(); ++it)
+    {
+        const graph::GraphNode& node = *it;
+        const auto visualIt = view.nodeVisuals.find(node.id);
+
+        if (visualIt == view.nodeVisuals.end())
+        {
+            continue;
+        }
+
+        const NodeVisual& visual = visualIt->second;
+
+        if (!IsNodeFullyInsideCanvas(visual, view, canvasRect))
+        {
+            continue;
+        }
+
+        for (int i = 0; i < static_cast<int>(node.outputs.size()); ++i)
+        {
+            const graph::GraphPort& port = node.outputs[static_cast<std::size_t>(i)];
+            const Vec2 position = PortPosition(visual, port, i);
+
+            if (Distance(position, canvasPosition) <= radius)
+            {
+                return {node.id, port.id};
+            }
+        }
+
+        for (int i = 0; i < static_cast<int>(node.inputs.size()); ++i)
+        {
+            const graph::GraphPort& port = node.inputs[static_cast<std::size_t>(i)];
+            const Vec2 position = PortPosition(visual, port, i);
+
+            if (Distance(position, canvasPosition) <= radius)
+            {
+                return {node.id, port.id};
+            }
+        }
+    }
+
+    return {};
+}
+
 void UpdateGraphViewInteraction(
     GraphViewState& view,
     const graph::GraphDocument& graph,
@@ -362,6 +480,7 @@ void UpdateGraphViewInteraction(
             };
 
             view.hoveredNodeId = -1;
+            ClearHoveredPort(view);
             SyncSelectedNodeVisuals(view);
             return;
         }
@@ -389,6 +508,7 @@ void UpdateGraphViewInteraction(
             }
 
             view.hoveredNodeId = view.draggingNodeId;
+            ClearHoveredPort(view);
             SyncSelectedNodeVisuals(view);
             return;
         }
@@ -396,9 +516,34 @@ void UpdateGraphViewInteraction(
         view.draggingNodeId = -1;
     }
 
+    if (view.draggingWire)
+    {
+        view.wirePreviewCanvasPosition = canvasMouse;
+
+        if (input.leftMouseDown)
+        {
+            if (canvasRect.Contains(input.mousePosition))
+            {
+                SyncHoveredPort(view, HitTestPort(graph, view, canvasMouse, canvasRect));
+            }
+            else
+            {
+                ClearHoveredPort(view);
+            }
+
+            view.hoveredNodeId = -1;
+            SyncSelectedNodeVisuals(view);
+            return;
+        }
+
+        ClearWireDrag(view);
+        ClearHoveredPort(view);
+    }
+
     if (!canvasRect.Contains(input.mousePosition))
     {
         view.hoveredNodeId = -1;
+        ClearHoveredPort(view);
         SyncSelectedNodeVisuals(view);
         return;
     }
@@ -432,25 +577,41 @@ void UpdateGraphViewInteraction(
         view.panStartMousePosition = input.mousePosition;
         view.panStartCameraOffset = view.cameraOffset;
         view.hoveredNodeId = -1;
+        ClearHoveredPort(view);
         SyncSelectedNodeVisuals(view);
         return;
     }
 
+    const PortHit portHit = HitTestPort(graph, view, canvasMouse, canvasRect);
+    SyncHoveredPort(view, portHit);
     view.hoveredNodeId = HitTestNode(graph, view, canvasMouse, canvasRect);
 
     if (input.leftMousePressed)
     {
-        view.selectedNodeId = view.hoveredNodeId;
-
-        if (view.hoveredNodeId >= 0)
+        if (view.hoveredPortNodeId >= 0 &&
+            view.hoveredPortId >= 0 &&
+            IsOutputPort(graph, view.hoveredPortNodeId, view.hoveredPortId))
         {
-            view.draggingNodeId = view.hoveredNodeId;
-            view.dragStartCanvasPosition = canvasMouse;
+            view.draggingWire = true;
+            view.wireStartNodeId = view.hoveredPortNodeId;
+            view.wireStartPortId = view.hoveredPortId;
+            view.wirePreviewCanvasPosition = canvasMouse;
+            view.draggingNodeId = -1;
+        }
+        else
+        {
+            view.selectedNodeId = view.hoveredNodeId;
 
-            const auto visualIt = view.nodeVisuals.find(view.hoveredNodeId);
-            if (visualIt != view.nodeVisuals.end())
+            if (view.hoveredNodeId >= 0)
             {
-                view.dragStartNodePosition = visualIt->second.position;
+                view.draggingNodeId = view.hoveredNodeId;
+                view.dragStartCanvasPosition = canvasMouse;
+
+                const auto visualIt = view.nodeVisuals.find(view.hoveredNodeId);
+                if (visualIt != view.nodeVisuals.end())
+                {
+                    view.dragStartNodePosition = visualIt->second.position;
+                }
             }
         }
     }
@@ -499,6 +660,43 @@ void DrawGraphView(
         const Vec2 to = CanvasToScreen(PortPosition(toVisualIt->second, *toPort, toIndex), view, canvasRect);
 
         DrawBezierApprox(renderer, from, to, canvasRect, ResourceColor(fromPort->resource, theme), 2.0f);
+    }
+
+    if (view.draggingWire)
+    {
+        const graph::GraphNode* startNode = graph::FindNode(graph, view.wireStartNodeId);
+        const graph::GraphPort* startPort = graph::FindPort(graph, view.wireStartNodeId, view.wireStartPortId);
+
+        if (startNode != nullptr && startPort != nullptr)
+        {
+            const auto startVisualIt = view.nodeVisuals.find(startNode->id);
+
+            if (startVisualIt != view.nodeVisuals.end() &&
+                IsNodeFullyInsideCanvas(startVisualIt->second, view, canvasRect))
+            {
+                const int startIndex = PortIndex(*startNode, startPort->id);
+                const Vec2 from = CanvasToScreen(
+                    PortPosition(startVisualIt->second, *startPort, startIndex),
+                    view,
+                    canvasRect
+                );
+                const Vec2 to = CanvasToScreen(view.wirePreviewCanvasPosition, view, canvasRect);
+
+                DrawBezierApprox(
+                    renderer,
+                    from,
+                    to,
+                    canvasRect,
+                    WirePreviewColor(graph, view, theme),
+                    2.5f
+                );
+
+                if (canvasRect.Contains(to))
+                {
+                    renderer.DrawCircle(to, 4.0f, theme.wireActive);
+                }
+            }
+        }
     }
 
     for (const graph::GraphNode& node : graph.nodes)

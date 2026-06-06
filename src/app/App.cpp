@@ -227,7 +227,9 @@ void App::RunFrame()
             << " wheel=" << m_input.mouseWheelDelta
             << " selectedNode=" << m_graphView.selectedNodeId
             << " hoveredNode=" << m_graphView.hoveredNodeId
+            << " hoveredPort=" << m_graphView.hoveredPortNodeId << ":" << m_graphView.hoveredPortId
             << " draggingNode=" << m_graphView.draggingNodeId
+            << " draggingWire=" << (m_graphView.draggingWire ? 1 : 0)
             << " panning=" << (m_graphView.panningCanvas ? 1 : 0)
             << " zoom=" << m_graphView.zoom
             << " camera=(" << m_graphView.cameraOffset.x << ", " << m_graphView.cameraOffset.y << ")"
