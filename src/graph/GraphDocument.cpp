@@ -326,6 +326,25 @@ int AddOutputPort(
     return id;
 }
 
+std::string RecipeNodeDisplayName(const MachineDef& machine, const RecipeDef& recipe)
+{
+    // Source machines need recipe-distinguished names because the shared
+    // "Resource Source" machine label does not communicate which resource the
+    // node supplies. Processing machines keep their machine names so graph
+    // cards stay compact and readable.
+    if (recipe.id == production_ids::ExtractIronOre)
+    {
+        return "Iron Ore Source";
+    }
+
+    if (recipe.id == production_ids::SupplyWater)
+    {
+        return "Water Source";
+    }
+
+    return machine.displayName;
+}
+
 int AddRecipeNode(
     GraphDocument& graph,
     MachineId machineId,
@@ -346,7 +365,7 @@ int AddRecipeNode(
     graph.nodes.push_back(GraphNode{
         .id = nodeId,
         .type = NodeTypeForMachineClass(machine->machineClass),
-        .name = machine->displayName,
+        .name = RecipeNodeDisplayName(*machine, *recipe),
         .machineId = machine->id,
         .recipeId = recipe->id,
         .capacity = machine->baseThroughputPerMinute,
@@ -386,7 +405,7 @@ bool ConfigureNodeFromRecipe(
     RemoveEdgesTouchingNode(graph, nodeId);
 
     node->type = NodeTypeForMachineClass(machine->machineClass);
-    node->name = machine->displayName;
+    node->name = RecipeNodeDisplayName(*machine, *recipe);
     node->machineId = machine->id;
     node->recipeId = recipe->id;
     node->capacity = machine->baseThroughputPerMinute;
