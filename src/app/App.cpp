@@ -136,6 +136,61 @@ int HitTestOverlayRow(Vec2 point, Rect panel, float headerHeight, int visibleRow
     return -1;
 }
 
+Vec2 ClampNodePositionToVisibleCanvas(
+    Vec2 nodeTopLeft,
+    Vec2 nodeSize,
+    const editor::GraphViewState& view,
+    Rect graphCanvas
+)
+{
+    // Add Node stores the requested placement as a canvas-space anchor. Convert
+    // the visible screen bounds back to canvas space so newly created nodes stay
+    // reachable even when the graph view is panned or zoomed.
+    const Vec2 visibleTopLeft = editor::ScreenToCanvas(
+        Vec2{graphCanvas.x, graphCanvas.y},
+        view,
+        graphCanvas
+    );
+
+    const Vec2 visibleBottomRight = editor::ScreenToCanvas(
+        Vec2{graphCanvas.x + graphCanvas.w, graphCanvas.y + graphCanvas.h},
+        view,
+        graphCanvas
+    );
+
+    const float minX = std::min(visibleTopLeft.x, visibleBottomRight.x);
+    const float maxX = std::max(visibleTopLeft.x, visibleBottomRight.x) - nodeSize.x;
+    const float minY = std::min(visibleTopLeft.y, visibleBottomRight.y);
+    const float maxY = std::max(visibleTopLeft.y, visibleBottomRight.y) - nodeSize.y;
+
+    if (maxX >= minX)
+    {
+        nodeTopLeft.x = std::clamp(nodeTopLeft.x, minX, maxX);
+    }
+
+    if (maxY >= minY)
+    {
+        nodeTopLeft.y = std::clamp(nodeTopLeft.y, minY, maxY);
+    }
+
+    return nodeTopLeft;
+}
+
+Vec2 CenterNodeOnCanvasPoint(
+    Vec2 canvasPoint,
+    Vec2 nodeSize,
+    const editor::GraphViewState& view,
+    Rect graphCanvas
+)
+{
+    const Vec2 centered = {
+        canvasPoint.x - nodeSize.x * 0.5f,
+        canvasPoint.y - nodeSize.y * 0.5f
+    };
+
+    return ClampNodePositionToVisibleCanvas(centered, nodeSize, view, graphCanvas);
+}
+
 bool IsOverlayOutsideClick(Vec2 point, Rect panel)
 {
     // Overlay update code uses outside clicks as a close gesture. Keeping the
@@ -1453,7 +1508,12 @@ void App::UpdateAddNodeMenuInput(std::vector<std::string>& dashboardEvents, Rect
     auto visualIt = m_graphView.nodeVisuals.find(nodeId);
     if (visualIt != m_graphView.nodeVisuals.end())
     {
-        visualIt->second.position = m_addNodeMenuCanvasPosition;
+        visualIt->second.position = CenterNodeOnCanvasPoint(
+            m_addNodeMenuCanvasPosition,
+            visualIt->second.size,
+            m_graphView,
+            graphCanvas
+        );
     }
 
     m_graphView.selectedNodeId = nodeId;
