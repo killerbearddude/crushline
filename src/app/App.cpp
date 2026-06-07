@@ -1894,7 +1894,7 @@ bool App::Initialize(const AppConfig& config)
     }
     else
     {
-        std::cout << "Press Escape or close the window to quit. A/Tab opens Add Node. Ctrl+R resets, Ctrl+S saves, Ctrl+L loads.\n";
+        std::cout << "Press Escape or close the window to quit. A/Tab opens Add Node. Ctrl+Backspace clears, Ctrl+R resets, Ctrl+S saves, Ctrl+L loads.\n";
     }
 
     return true;
@@ -1936,6 +1936,22 @@ void App::RunFrame()
         MarkGraphDirty();
         dashboardEvents.push_back("Sample graph reset: " + GraphSummary(m_graph));
         std::cout << "Sample factory graph reset.\n";
+    }
+
+    if (m_input.keyCtrlDown && m_input.keyBackspacePressed)
+    {
+        // Ctrl+Backspace gives the player an explicit blank-canvas workflow for
+        // testing Add Node placement and building a production graph from zero.
+        // Replacing the view resets transient selection, hover, drag, wire, and
+        // panning state together with the graph document.
+        m_graph = graph::GraphDocument();
+        m_graphView = editor::GraphViewState{};
+        CloseAddNodeMenu();
+        CloseRecipeSelectionMenu();
+        m_lastSelectedEdgeHintId = -1;
+        MarkGraphDirty();
+        dashboardEvents.push_back("Graph cleared: " + GraphSummary(m_graph));
+        std::cout << "Graph cleared.\n";
     }
 
     if (m_input.keyCtrlDown && m_input.keySPressed)
