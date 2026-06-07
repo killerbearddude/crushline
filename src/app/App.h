@@ -1,9 +1,18 @@
 #pragma once
 
+// Declares the top-level application shell. App owns platform/window state,
+// renderer state, graph editing state, production catalogs, evaluator outputs,
+// and the dashboard/event-log bridge between gameplay data and UI rendering.
+
 #include "app/DashboardLayout.h"
 #include "editor/GraphView.h"
 #include "graph/GraphEvaluator.h"
 #include "graph/GraphTypes.h"
+#include "graph/MachineCatalog.h"
+#include "graph/ProductionEvaluator.h"
+#include "graph/RecipeCatalog.h"
+#include "graph/ResourceCatalog.h"
+#include "graph/ScenarioCatalog.h"
 #include "platform/Input.h"
 #include "platform/Window.h"
 #include "renderer/Renderer2D.h"
@@ -39,7 +48,7 @@ private:
     void AddEvent(std::string message);
     void MarkGraphDirty();
     void EvaluateGraphIfDirty();
-    void UpdateEventLogFromSimulation();
+    void UpdateEventLogFromProduction();
 
     AppConfig m_config;
     DashboardLayoutMetrics m_layoutMetrics;
@@ -47,6 +56,11 @@ private:
     graph::GraphDocument m_graph;
     editor::GraphViewState m_graphView;
     graph::SimulationResult m_simulationResult;
+    graph::ResourceCatalog m_resourceCatalog;
+    graph::MachineCatalog m_machineCatalog;
+    graph::RecipeCatalog m_recipeCatalog;
+    graph::ScenarioCatalog m_scenarioCatalog;
+    graph::ProductionEvaluation m_productionEvaluation;
     std::vector<std::string> m_eventLog;
 
     bool m_graphDirty = true;
@@ -56,8 +70,10 @@ private:
     bool m_eventLogPrimed = false;
     std::size_t m_lastNodeCount = 0;
     std::size_t m_lastEdgeCount = 0;
-    int m_lastWarningCount = 0;
-    int m_lastBottleneckCount = 0;
+    int m_lastProductionInvalidConnectionCount = 0;
+    int m_lastProductionBottleneckCount = 0;
+    bool m_lastScenarioComplete = false;
+    float m_lastTargetSatisfactionRatio = -1.0f;
 
     Window m_window;
     InputState m_input;

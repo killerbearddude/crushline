@@ -1,3 +1,7 @@
+// Implements the Crushline application loop and dashboard rendering. This file
+// coordinates platform input, graph editing, legacy inspector metrics, and the
+// production-evaluator data now used by the top bar, panels, and event log.
+
 #include "app/App.h"
 
 #include "platform/Time.h"
@@ -239,10 +243,118 @@ float SafeRatio(float value, float maxValue)
     return Clamp01(value / maxValue);
 }
 
-float PowerRatio(const graph::SimulationResult& simulation)
+const graph::ScenarioDef* ActiveScenario(const graph::ScenarioCatalog& scenarios)
 {
-    return SafeRatio(simulation.totalPowerUse, simulation.totalPowerCapacity);
+    return scenarios.Find(graph::production_ids::Tier0IronIngotScenario);
 }
+
+const graph::ResourceFlowSummary* FindFlowSummary(
+    const graph::ProductionEvaluation& production,
+    graph::ResourceId resourceId
+)
+{
+    const auto it = std::find_if(
+        production.resources.begin(),
+        production.resources.end(),
+        [resourceId](const graph::ResourceFlowSummary& summary) {
+            return summary.resourceId == resourceId;
+        }
+    );
+
+    return it == production.resources.end() ? nullptr : &(*it);
+}
+
+const graph::ObjectiveStatus* FindObjectiveStatus(
+    const graph::ProductionEvaluation& production,
+    graph::ObjectiveKind kind,
+    graph::ResourceId resourceId
+)
+{
+    const auto it = std::find_if(
+        production.objectives.begin(),
+        production.objectives.end(),
+        [kind, resourceId](const graph::ObjectiveStatus& objective) {
+            return objective.kind == kind && objective.resourceId == resourceId;
+        }
+    );
+
+    return it == production.objectives.end() ? nullptr : &(*it);
+}
+
+float ProducedRate(const graph::ProductionEvaluation& production, graph::ResourceId resourceId)
+{
+    const graph::ResourceFlowSummary* summary = FindFlowSummary(production, resourceId);
+    return summary == nullptr ? 0.0f : summary->producedPerMinute;
+}
+
+float ConsumedRate(const graph::ProductionEvaluation& production, graph::ResourceId resourceId)
+{
+    const graph::ResourceFlowSummary* summary = FindFlowSummary(production, resourceId);
+    return summary == nullptr ? 0.0f : summary->consumedPerMinute;
+}
+
+float SurplusRate(const graph::ProductionEvaluation& production, graph::ResourceId resourceId)
+{
+    const graph::ResourceFlowSummary* summary = FindFlowSummary(production, resourceId);
+    return summary == nullptr ? 0.0f : summary->surplusPerMinute;
+}
+
+float ObjectiveRatio(
+    const graph::ProductionEvaluation& production,
+    graph::ObjectiveKind kind,
+    graph::ResourceId resourceId
+)
+{
+    const graph::ObjectiveStatus* objective = FindObjectiveStatus(production, kind, resourceId);
+    return objective == nullptr ? 0.0f : Clamp01(objective->satisfactionRatio);
+}
+
+std::string FormatWhole(float value)
+{
+    char buffer[32]{};
+    std::snprintf(buffer, sizeof(buffer), "%.0f", value);
+    return buffer;
+}
+
+std::string FormatRate(float value)
+{
+    return FormatWhole(value) + " /m";
+}
+
+std::string FormatRatePair(float actual, float required)
+{
+    return FormatWhole(actual) + "/" + FormatWhole(required) + " /m";
+}
+
+std::string FormatPower(float value)
+{
+    return FormatWhole(value) + " kW";
+}
+
+std::string FormatPercent(float value)
+{
+    char buffer[32]{};
+    std::snprintf(buffer, sizeof(buffer), "%.0f%%", Clamp01(value) * 100.0f);
+    return buffer;
+}
+
+std::string FormatCount(std::size_t value)
+{
+    return std::to_string(value);
+}
+
+std::string FormatCount(int value)
+{
+    return std::to_string(value);
+}
+
+struct DashboardMetric
+{
+    std::string_view label;
+    std::string valueText;
+    float ratio = 0.0f;
+    Color accent{};
+};
 
 void DrawProgressBar(Renderer2D& renderer, Rect rect, const UiTheme& theme, float value, Color fill)
 {
@@ -264,13 +376,22 @@ void DrawProgressBar(Renderer2D& renderer, Rect rect, const UiTheme& theme, floa
     }
 }
 
-void DrawMetricRow(Renderer2D& renderer, Rect row, const UiTheme& theme, float value, Color accent, int index)
+void DrawMetricRow(
+    Renderer2D& renderer,
+    Rect row,
+    const UiTheme& theme,
+    const DashboardMetric& metric,
+    int index
+)
 {
     const Color rowColor = (index % 2) == 0 ? theme.panelAlt : theme.panel;
 
     renderer.DrawRect(row, rowColor);
     renderer.DrawRectOutline(row, theme.panelBorder, 1.0f);
-    renderer.DrawRect({row.x + 8.0f, row.y + 8.0f, 5.0f, row.h - 16.0f}, accent);
+    renderer.DrawRect({row.x + 8.0f, row.y + 8.0f, 5.0f, row.h - 16.0f}, metric.accent);
+
+    renderer.DrawText({row.x + 24.0f, row.y + 5.0f}, metric.label, theme.textSecondary);
+    renderer.DrawText({row.x + row.w - 82.0f, row.y + 5.0f}, metric.valueText, theme.textMuted);
 
     const Rect bar = {
         row.x + 24.0f,
@@ -279,9 +400,9 @@ void DrawMetricRow(Renderer2D& renderer, Rect row, const UiTheme& theme, float v
         5.0f
     };
 
-    DrawProgressBar(renderer, bar, theme, value, accent);
+    DrawProgressBar(renderer, bar, theme, metric.ratio, metric.accent);
 
-    const float markerX = bar.x + bar.w * Clamp01(value);
+    const float markerX = bar.x + bar.w * Clamp01(metric.ratio);
     renderer.DrawLine({markerX, row.y + 6.0f}, {markerX, row.y + row.h - 6.0f}, theme.textMuted, 1.0f);
 }
 
@@ -290,7 +411,7 @@ void DrawDashboardMetrics(
     Rect panel,
     const UiTheme& theme,
     const graph::GraphDocument& graph,
-    const graph::SimulationResult& simulation,
+    const graph::ProductionEvaluation& production,
     bool primaryPanel
 )
 {
@@ -298,126 +419,99 @@ void DrawDashboardMetrics(
     const float rowHeight = 28.0f;
     const float startY = panel.y + 44.0f;
 
-    const float throughputRatio = SafeRatio(simulation.totalThroughput, 240.0f);
-    const float powerRatio = PowerRatio(simulation);
-    const float efficiencyRatio = Clamp01(simulation.plantEfficiency);
-    const float wasteRatio = Clamp01(simulation.wasteStoragePercent);
-    const float warningRatio = SafeRatio(static_cast<float>(simulation.warningCount), 5.0f);
-    const float bottleneckRatio = SafeRatio(static_cast<float>(simulation.bottleneckCount), 3.0f);
-    const float nodeRatio = SafeRatio(static_cast<float>(graph.nodes.size()), 8.0f);
-    const float edgeRatio = SafeRatio(static_cast<float>(graph.edges.size()), 8.0f);
+    const graph::ObjectiveStatus* ingotObjective = FindObjectiveStatus(
+        production,
+        graph::ObjectiveKind::ProduceAtLeastRate,
+        graph::production_ids::IronIngot
+    );
+    const float ingotProduced = ProducedRate(production, graph::production_ids::IronIngot);
+    const float ingotRequired = ingotObjective == nullptr ? 50.0f : ingotObjective->requiredPerMinute;
+    const float slurryProduced = ProducedRate(production, graph::production_ids::IronSlurry);
+    const float slurryConsumed = ConsumedRate(production, graph::production_ids::IronSlurry);
+    const float slurryRatio = ObjectiveRatio(
+        production,
+        graph::ObjectiveKind::HandleAllProduced,
+        graph::production_ids::IronSlurry
+    );
+    const float invalidRatio = SafeRatio(static_cast<float>(production.invalidConnectionCount), 3.0f);
+    const float bottleneckRatio = SafeRatio(static_cast<float>(production.bottleneckCount), 3.0f);
+    const float targetRatio = Clamp01(production.targetSatisfactionRatio);
+    const float completeRatio = production.scenarioComplete ? 1.0f : 0.0f;
 
-    const std::array<float, 8> primaryValues = {
-        throughputRatio,
-        nodeRatio,
-        edgeRatio,
-        efficiencyRatio,
-        powerRatio,
-        wasteRatio,
-        warningRatio,
-        bottleneckRatio
-    };
+    const std::array<DashboardMetric, 8> primaryMetrics = {{
+        {"SCENARIO", production.scenarioComplete ? "COMPLETE" : "INCOMPLETE", completeRatio, production.scenarioComplete ? theme.accentGreen : theme.accentAmber},
+        {"TARGETS", FormatPercent(targetRatio), targetRatio, Mix(theme.accentAmber, theme.accentGreen, targetRatio)},
+        {"IRON INGOT", FormatRatePair(ingotProduced, ingotRequired), SafeRatio(ingotProduced, ingotRequired), theme.accentCyan},
+        {"IRON SLURRY", FormatRatePair(slurryConsumed, slurryProduced), slurryRatio, Mix(theme.accentRed, theme.accentGreen, slurryRatio)},
+        {"POWER", FormatPower(production.totalPowerKw), SafeRatio(production.totalPowerKw, 600.0f), AlertColor(theme, SafeRatio(production.totalPowerKw, 600.0f))},
+        {"UNUSED WASTE", FormatRate(production.totalWastePerMinute), SafeRatio(production.totalWastePerMinute, 50.0f), AlertColor(theme, SafeRatio(production.totalWastePerMinute, 50.0f))},
+        {"INVALID", FormatCount(production.invalidConnectionCount), invalidRatio, production.invalidConnectionCount == 0 ? theme.accentGreen : theme.accentRed},
+        {"BOTTLENECKS", FormatCount(production.bottleneckCount), bottleneckRatio, production.bottleneckCount == 0 ? theme.accentGreen : theme.accentAmber}
+    }};
 
-    const std::array<float, 8> secondaryValues = {
-        efficiencyRatio,
-        throughputRatio,
-        powerRatio,
-        1.0f - powerRatio,
-        wasteRatio,
-        warningRatio,
-        bottleneckRatio,
-        edgeRatio
-    };
+    const std::array<DashboardMetric, 8> secondaryMetrics = {{
+        {"NODES", FormatCount(graph.nodes.size()), SafeRatio(static_cast<float>(graph.nodes.size()), 8.0f), theme.accentCyan},
+        {"LINKS", FormatCount(graph.edges.size()), SafeRatio(static_cast<float>(graph.edges.size()), 8.0f), theme.accentCyan},
+        {"INGOT RATE", FormatRate(ingotProduced), SafeRatio(ingotProduced, ingotRequired), theme.accentCyan},
+        {"SLURRY MADE", FormatRate(slurryProduced), SafeRatio(slurryProduced, 10.0f), theme.accentAmber},
+        {"SLURRY USED", FormatRate(slurryConsumed), slurryRatio, Mix(theme.accentRed, theme.accentGreen, slurryRatio)},
+        {"SURPLUS INGOT", FormatRate(SurplusRate(production, graph::production_ids::IronIngot)), SafeRatio(SurplusRate(production, graph::production_ids::IronIngot), 50.0f), theme.accentGreen},
+        {"VALIDITY", production.invalidConnectionCount == 0 && !production.hasCycle ? "CLEAR" : "BLOCKED", production.invalidConnectionCount == 0 && !production.hasCycle ? 1.0f : 0.0f, production.invalidConnectionCount == 0 && !production.hasCycle ? theme.accentGreen : theme.accentRed},
+        {"OBJECTIVES", FormatCount(static_cast<int>(production.objectives.size())), SafeRatio(static_cast<float>(production.objectives.size()), 4.0f), theme.accentCyan}
+    }};
 
-    const std::array<Color, 8> primaryColors = {
-        theme.accentCyan,
-        theme.accentCyan,
-        theme.accentGreen,
-        Mix(theme.accentAmber, theme.accentGreen, efficiencyRatio),
-        AlertColor(theme, powerRatio),
-        AlertColor(theme, wasteRatio),
-        AlertColor(theme, warningRatio),
-        AlertColor(theme, bottleneckRatio)
-    };
-
-    const std::array<Color, 8> secondaryColors = {
-        Mix(theme.accentAmber, theme.accentGreen, efficiencyRatio),
-        theme.accentCyan,
-        AlertColor(theme, powerRatio),
-        Mix(theme.accentRed, theme.accentGreen, 1.0f - powerRatio),
-        AlertColor(theme, wasteRatio),
-        AlertColor(theme, warningRatio),
-        AlertColor(theme, bottleneckRatio),
-        theme.accentCyan
-    };
-
-    const std::array<std::string_view, 8> primaryLabels = {
-        "THROUGHPUT",
-        "NODES",
-        "EDGES",
-        "EFFICIENCY",
-        "POWER USE",
-        "WASTE",
-        "WARNINGS",
-        "BOTTLENECKS"
-    };
-
-    const std::array<std::string_view, 8> secondaryLabels = {
-        "PLANT EFF",
-        "OUTPUT RATE",
-        "POWER LOAD",
-        "RESERVE",
-        "STORAGE",
-        "ALERTS",
-        "BLOCKS",
-        "LINKS"
-    };
-
-    const std::array<float, 8>& values = primaryPanel ? primaryValues : secondaryValues;
-    const std::array<Color, 8>& colors = primaryPanel ? primaryColors : secondaryColors;
-    const std::array<std::string_view, 8>& labels = primaryPanel ? primaryLabels : secondaryLabels;
+    const std::array<DashboardMetric, 8>& metrics = primaryPanel ? primaryMetrics : secondaryMetrics;
 
     for (int i = 0; i < 8; ++i)
     {
         const float y = startY + static_cast<float>(i) * (rowHeight + 6.0f);
         const Rect row = {content.x, y, content.w, rowHeight};
-        DrawMetricRow(renderer, row, theme, values[i], colors[i], i);
-        renderer.DrawText({row.x + 24.0f, row.y + 5.0f}, labels[i], theme.textSecondary);
+        DrawMetricRow(renderer, row, theme, metrics[static_cast<std::size_t>(i)], i);
     }
 }
 
-void DrawStatusChips(Renderer2D& renderer, Rect topBar, const UiTheme& theme, const graph::SimulationResult& simulation)
+void DrawStatusChips(Renderer2D& renderer, Rect topBar, const UiTheme& theme, const graph::ProductionEvaluation& production)
 {
     const float chipY = topBar.y + 14.0f;
     const float chipH = 28.0f;
     const float chipW = 150.0f;
     float x = topBar.x + 250.0f;
 
-    const float powerRatio = PowerRatio(simulation);
-    const float warningRatio = SafeRatio(static_cast<float>(simulation.warningCount), 5.0f);
+    const float targetRatio = Clamp01(production.targetSatisfactionRatio);
+    const float ingotRatio = ObjectiveRatio(
+        production,
+        graph::ObjectiveKind::ProduceAtLeastRate,
+        graph::production_ids::IronIngot
+    );
+    const float slurryRatio = ObjectiveRatio(
+        production,
+        graph::ObjectiveKind::HandleAllProduced,
+        graph::production_ids::IronSlurry
+    );
+    const float validityRatio = production.invalidConnectionCount == 0 && !production.hasCycle ? 1.0f : 0.0f;
 
     const float values[] = {
-        SafeRatio(simulation.totalThroughput, 240.0f),
-        Clamp01(simulation.plantEfficiency),
-        powerRatio,
-        Clamp01(simulation.wasteStoragePercent),
-        warningRatio
+        production.scenarioComplete ? 1.0f : 0.0f,
+        targetRatio,
+        ingotRatio,
+        slurryRatio,
+        validityRatio
     };
 
     const Color accents[] = {
-        theme.accentCyan,
-        Mix(theme.accentAmber, theme.accentGreen, Clamp01(simulation.plantEfficiency)),
-        AlertColor(theme, powerRatio),
-        AlertColor(theme, simulation.wasteStoragePercent),
-        AlertColor(theme, warningRatio)
+        production.scenarioComplete ? theme.accentGreen : theme.accentAmber,
+        Mix(theme.accentAmber, theme.accentGreen, targetRatio),
+        Mix(theme.accentAmber, theme.accentGreen, ingotRatio),
+        Mix(theme.accentRed, theme.accentGreen, slurryRatio),
+        validityRatio >= 1.0f ? theme.accentGreen : theme.accentRed
     };
 
     const std::string_view labels[] = {
-        "FLOW",
-        "EFF",
-        "POWER",
-        "WASTE",
-        "WARN"
+        "SCENARIO",
+        "TARGET",
+        "INGOT",
+        "SLURRY",
+        "VALID"
     };
 
     for (int i = 0; i < 5; ++i)
@@ -470,30 +564,6 @@ const char* ResourceTypeLabel(graph::ResourceType resource)
     }
 
     return "RESOURCE";
-}
-
-std::string FormatWhole(float value)
-{
-    char buffer[32]{};
-    std::snprintf(buffer, sizeof(buffer), "%.0f", value);
-    return buffer;
-}
-
-std::string FormatRate(float value)
-{
-    return FormatWhole(value) + " /m";
-}
-
-std::string FormatPower(float value)
-{
-    return FormatWhole(value) + " kW";
-}
-
-std::string FormatPercent(float value)
-{
-    char buffer[32]{};
-    std::snprintf(buffer, sizeof(buffer), "%.0f%%", Clamp01(value) * 100.0f);
-    return buffer;
 }
 
 std::string FormatId(int value)
@@ -730,6 +800,9 @@ Color EventAccentColor(const UiTheme& theme, const std::string& message)
     if (message.find("failed") != std::string::npos ||
         message.find("Failed") != std::string::npos ||
         message.find("Invalid") != std::string::npos ||
+        message.find("invalid") != std::string::npos ||
+        message.find("incomplete") != std::string::npos ||
+        message.find("blocked") != std::string::npos ||
         message.find("exceeds") != std::string::npos ||
         message.find("Bottlenecks active") != std::string::npos)
     {
@@ -751,6 +824,8 @@ Color EventAccentColor(const UiTheme& theme, const std::string& message)
         message.find("loaded") != std::string::npos ||
         message.find("reset") != std::string::npos ||
         message.find("ready") != std::string::npos ||
+        message.find("complete") != std::string::npos ||
+        message.find("clear") != std::string::npos ||
         message.find("created") != std::string::npos ||
         message.find("added") != std::string::npos)
     {
@@ -873,11 +948,27 @@ void App::EvaluateGraphIfDirty()
         return;
     }
 
+    // Keep the legacy evaluator alive for the selected-node inspector while the
+    // dashboard migrates to the new production evaluator. Later patches can
+    // remove this bridge once all UI panels consume ProductionEvaluation.
     m_simulationResult = graph::EvaluateGraph(m_graph);
+
+    const graph::ScenarioDef* scenario = ActiveScenario(m_scenarioCatalog);
+    if (scenario != nullptr)
+    {
+        const graph::ProductionEvaluator evaluator(m_resourceCatalog, m_machineCatalog, m_recipeCatalog);
+        m_productionEvaluation = evaluator.Evaluate(m_graph, *scenario);
+    }
+    else
+    {
+        m_productionEvaluation = {};
+        m_productionEvaluation.events.push_back("Scenario missing: Tier 0 Iron Ingot Chain");
+    }
+
     m_graphDirty = false;
 }
 
-void App::UpdateEventLogFromSimulation()
+void App::UpdateEventLogFromProduction()
 {
     const bool firstUpdate = !m_eventLogPrimed;
     const std::size_t nodeCount = m_graph.nodes.size();
@@ -885,7 +976,7 @@ void App::UpdateEventLogFromSimulation()
 
     if (firstUpdate)
     {
-        AddEvent("Factory graph ready");
+        AddEvent("Production evaluator ready");
     }
 
     if (firstUpdate || nodeCount != m_lastNodeCount)
@@ -898,39 +989,63 @@ void App::UpdateEventLogFromSimulation()
         AddEvent("Links active: " + std::to_string(edgeCount));
     }
 
-    if (firstUpdate || m_simulationResult.warningCount != m_lastWarningCount)
-    {
-        if (m_simulationResult.warningCount > 0)
-        {
-            AddEvent("Warnings active: " + std::to_string(m_simulationResult.warningCount));
-        }
-        else if (!firstUpdate || m_lastWarningCount > 0)
-        {
-            AddEvent("Warnings clear");
-        }
+    const bool scenarioStateChanged =
+        firstUpdate || m_productionEvaluation.scenarioComplete != m_lastScenarioComplete;
+    const bool invalidCountChanged =
+        firstUpdate || m_productionEvaluation.invalidConnectionCount != m_lastProductionInvalidConnectionCount;
+    const bool bottleneckCountChanged =
+        firstUpdate || m_productionEvaluation.bottleneckCount != m_lastProductionBottleneckCount;
 
-        for (auto it = m_simulationResult.events.rbegin(); it != m_simulationResult.events.rend(); ++it)
+    if (scenarioStateChanged)
+    {
+        AddEvent(m_productionEvaluation.scenarioComplete ? "Scenario complete" : "Scenario incomplete");
+    }
+
+    if (invalidCountChanged)
+    {
+        if (m_productionEvaluation.invalidConnectionCount > 0)
+        {
+            AddEvent("Invalid production links: " + std::to_string(m_productionEvaluation.invalidConnectionCount));
+        }
+        else if (!firstUpdate || m_lastProductionInvalidConnectionCount > 0)
+        {
+            AddEvent("Production links clear");
+        }
+    }
+
+    if (bottleneckCountChanged)
+    {
+        if (m_productionEvaluation.bottleneckCount > 0)
+        {
+            AddEvent("Production bottlenecks: " + std::to_string(m_productionEvaluation.bottleneckCount));
+        }
+        else if (!firstUpdate || m_lastProductionBottleneckCount > 0)
+        {
+            AddEvent("Production bottlenecks clear");
+        }
+    }
+
+    const bool targetRatioChanged =
+        firstUpdate ||
+        std::fabs(m_productionEvaluation.targetSatisfactionRatio - m_lastTargetSatisfactionRatio) > 0.001f;
+
+    if (targetRatioChanged || scenarioStateChanged || invalidCountChanged || bottleneckCountChanged)
+    {
+        // ProductionEvaluation already formats objective and validation messages
+        // with resource names and rates, so the event log can surface solver
+        // feedback without duplicating catalog lookup logic in the UI layer.
+        for (auto it = m_productionEvaluation.events.rbegin(); it != m_productionEvaluation.events.rend(); ++it)
         {
             AddEvent(*it);
         }
     }
 
-    if (firstUpdate || m_simulationResult.bottleneckCount != m_lastBottleneckCount)
-    {
-        if (m_simulationResult.bottleneckCount > 0)
-        {
-            AddEvent("Bottlenecks active: " + std::to_string(m_simulationResult.bottleneckCount));
-        }
-        else if (!firstUpdate || m_lastBottleneckCount > 0)
-        {
-            AddEvent("Bottlenecks clear");
-        }
-    }
-
     m_lastNodeCount = nodeCount;
     m_lastEdgeCount = edgeCount;
-    m_lastWarningCount = m_simulationResult.warningCount;
-    m_lastBottleneckCount = m_simulationResult.bottleneckCount;
+    m_lastProductionInvalidConnectionCount = m_productionEvaluation.invalidConnectionCount;
+    m_lastProductionBottleneckCount = m_productionEvaluation.bottleneckCount;
+    m_lastScenarioComplete = m_productionEvaluation.scenarioComplete;
+    m_lastTargetSatisfactionRatio = m_productionEvaluation.targetSatisfactionRatio;
     m_eventLogPrimed = true;
 }
 
@@ -953,7 +1068,7 @@ bool App::Initialize(const AppConfig& config)
     m_graphView = editor::CreateSampleFactoryGraphView(m_graph);
     MarkGraphDirty();
     EvaluateGraphIfDirty();
-    UpdateEventLogFromSimulation();
+    UpdateEventLogFromProduction();
 
     m_lastTimeSeconds = GetSeconds();
 
@@ -1065,7 +1180,7 @@ void App::RunFrame()
     }
 
     EvaluateGraphIfDirty();
-    UpdateEventLogFromSimulation();
+    UpdateEventLogFromProduction();
 
     for (auto it = dashboardEvents.rbegin(); it != dashboardEvents.rend(); ++it)
     {
@@ -1077,7 +1192,7 @@ void App::RunFrame()
     DrawPanel(m_renderer, regions.topBar, m_theme, m_theme.panelAlt);
     DrawPanel(m_renderer, regions.leftPanel, m_theme, m_theme.panel);
     m_renderer.DrawText({regions.topBar.x + 22.0f, regions.topBar.y + 13.0f}, "CRUSHLINE", m_theme.textPrimary);
-    m_renderer.DrawText({regions.leftPanel.x + 14.0f, regions.leftPanel.y + 8.0f}, "INPUTS", m_theme.textSecondary);
+    m_renderer.DrawText({regions.leftPanel.x + 14.0f, regions.leftPanel.y + 8.0f}, "OBJECTIVES", m_theme.textSecondary);
     m_renderer.DrawRect(regions.graphCanvas, m_theme.canvas);
     DrawGrid(m_renderer, regions.graphCanvas, m_theme, m_graphView.cameraOffset, m_graphView.zoom);
     m_renderer.DrawRectOutline(regions.graphCanvas, m_theme.panelBorder, m_theme.borderThickness);
@@ -1085,14 +1200,14 @@ void App::RunFrame()
     DrawPanel(m_renderer, regions.inspector, m_theme, m_theme.panel);
     DrawPanel(m_renderer, regions.eventLog, m_theme, m_theme.panelAlt);
     m_renderer.DrawText({regions.graphCanvas.x + 12.0f, regions.graphCanvas.y + 8.0f}, "GRAPH", m_theme.textMuted);
-    m_renderer.DrawText({regions.rightPanel.x + 14.0f, regions.rightPanel.y + 8.0f}, "PLANT", m_theme.textSecondary);
+    m_renderer.DrawText({regions.rightPanel.x + 14.0f, regions.rightPanel.y + 8.0f}, "PRODUCTION", m_theme.textSecondary);
     m_renderer.DrawText({regions.inspector.x + 14.0f, regions.inspector.y + 8.0f}, "INSPECTOR", m_theme.textSecondary);
     m_renderer.DrawText({regions.eventLog.x + 14.0f, regions.eventLog.y + 8.0f}, "EVENT LOG", m_theme.textSecondary);
     DrawEventLogMessages(m_renderer, regions.eventLog, m_theme, m_eventLog);
 
-    DrawStatusChips(m_renderer, regions.topBar, m_theme, m_simulationResult);
-    DrawDashboardMetrics(m_renderer, regions.leftPanel, m_theme, m_graph, m_simulationResult, true);
-    DrawDashboardMetrics(m_renderer, regions.rightPanel, m_theme, m_graph, m_simulationResult, false);
+    DrawStatusChips(m_renderer, regions.topBar, m_theme, m_productionEvaluation);
+    DrawDashboardMetrics(m_renderer, regions.leftPanel, m_theme, m_graph, m_productionEvaluation, true);
+    DrawDashboardMetrics(m_renderer, regions.rightPanel, m_theme, m_graph, m_productionEvaluation, false);
     DrawSelectedNodeInspector(m_renderer, regions.inspector, m_theme, m_graph, m_graphView, m_simulationResult);
 
     editor::DrawGraphView(m_renderer, m_graph, m_graphView, regions.graphCanvas, m_theme);
@@ -1117,11 +1232,12 @@ void App::RunFrame()
             << " draggingWire=" << (m_graphView.draggingWire ? 1 : 0)
             << " nodes=" << m_graph.nodes.size()
             << " edges=" << m_graph.edges.size()
-            << " throughput=" << m_simulationResult.totalThroughput
-            << " power=" << m_simulationResult.totalPowerUse << "/" << m_simulationResult.totalPowerCapacity
-            << " efficiency=" << m_simulationResult.plantEfficiency
-            << " warnings=" << m_simulationResult.warningCount
-            << " bottlenecks=" << m_simulationResult.bottleneckCount
+            << " scenarioComplete=" << (m_productionEvaluation.scenarioComplete ? 1 : 0)
+            << " target=" << m_productionEvaluation.targetSatisfactionRatio
+            << " productionPower=" << m_productionEvaluation.totalPowerKw
+            << " unmanagedWaste=" << m_productionEvaluation.totalWastePerMinute
+            << " invalidProductionLinks=" << m_productionEvaluation.invalidConnectionCount
+            << " productionBottlenecks=" << m_productionEvaluation.bottleneckCount
             << " panning=" << (m_graphView.panningCanvas ? 1 : 0)
             << " zoom=" << m_graphView.zoom
             << " camera=(" << m_graphView.cameraOffset.x << ", " << m_graphView.cameraOffset.y << ")"
