@@ -318,17 +318,17 @@ std::string FormatWhole(float value)
 
 std::string FormatRate(float value)
 {
-    return FormatWhole(value) + " /m";
+    return FormatWhole(value) + "/m";
 }
 
 std::string FormatRatePair(float actual, float required)
 {
-    return FormatWhole(actual) + "/" + FormatWhole(required) + " /m";
+    return FormatWhole(actual) + "/" + FormatWhole(required) + "/m";
 }
 
 std::string FormatPower(float value)
 {
-    return FormatWhole(value) + " kW";
+    return FormatWhole(value) + "kW";
 }
 
 std::string FormatPercent(float value)
@@ -391,7 +391,16 @@ void DrawMetricRow(
     renderer.DrawRect({row.x + 8.0f, row.y + 8.0f, 5.0f, row.h - 16.0f}, metric.accent);
 
     renderer.DrawText({row.x + 24.0f, row.y + 5.0f}, metric.label, theme.textSecondary);
-    renderer.DrawText({row.x + row.w - 82.0f, row.y + 5.0f}, metric.valueText, theme.textMuted);
+
+    // Text rendering is intentionally simple and does not clip per row yet.
+    // Approximate right alignment keeps compact values from colliding with
+    // labels in narrow side panels until real text measurement lands.
+    const float estimatedValueWidth = std::clamp(
+        static_cast<float>(metric.valueText.size()) * 7.0f,
+        28.0f,
+        76.0f
+    );
+    renderer.DrawText({row.x + row.w - 10.0f - estimatedValueWidth, row.y + 5.0f}, metric.valueText, theme.textMuted);
 
     const Rect bar = {
         row.x + 24.0f,
@@ -439,25 +448,25 @@ void DrawDashboardMetrics(
     const float completeRatio = production.scenarioComplete ? 1.0f : 0.0f;
 
     const std::array<DashboardMetric, 8> primaryMetrics = {{
-        {"SCENARIO", production.scenarioComplete ? "COMPLETE" : "INCOMPLETE", completeRatio, production.scenarioComplete ? theme.accentGreen : theme.accentAmber},
+        {"SCENARIO", production.scenarioComplete ? "DONE" : "OPEN", completeRatio, production.scenarioComplete ? theme.accentGreen : theme.accentAmber},
         {"TARGETS", FormatPercent(targetRatio), targetRatio, Mix(theme.accentAmber, theme.accentGreen, targetRatio)},
-        {"IRON INGOT", FormatRatePair(ingotProduced, ingotRequired), SafeRatio(ingotProduced, ingotRequired), theme.accentCyan},
-        {"IRON SLURRY", FormatRatePair(slurryConsumed, slurryProduced), slurryRatio, Mix(theme.accentRed, theme.accentGreen, slurryRatio)},
+        {"INGOT", FormatRatePair(ingotProduced, ingotRequired), SafeRatio(ingotProduced, ingotRequired), theme.accentCyan},
+        {"SLURRY", FormatRatePair(slurryConsumed, slurryProduced), slurryRatio, Mix(theme.accentRed, theme.accentGreen, slurryRatio)},
         {"POWER", FormatPower(production.totalPowerKw), SafeRatio(production.totalPowerKw, 600.0f), AlertColor(theme, SafeRatio(production.totalPowerKw, 600.0f))},
-        {"UNUSED WASTE", FormatRate(production.totalWastePerMinute), SafeRatio(production.totalWastePerMinute, 50.0f), AlertColor(theme, SafeRatio(production.totalWastePerMinute, 50.0f))},
-        {"INVALID", FormatCount(production.invalidConnectionCount), invalidRatio, production.invalidConnectionCount == 0 ? theme.accentGreen : theme.accentRed},
-        {"BOTTLENECKS", FormatCount(production.bottleneckCount), bottleneckRatio, production.bottleneckCount == 0 ? theme.accentGreen : theme.accentAmber}
+        {"WASTE", FormatRate(production.totalWastePerMinute), SafeRatio(production.totalWastePerMinute, 50.0f), AlertColor(theme, SafeRatio(production.totalWastePerMinute, 50.0f))},
+        {"BAD LINKS", FormatCount(production.invalidConnectionCount), invalidRatio, production.invalidConnectionCount == 0 ? theme.accentGreen : theme.accentRed},
+        {"BLOCKS", FormatCount(production.bottleneckCount), bottleneckRatio, production.bottleneckCount == 0 ? theme.accentGreen : theme.accentAmber}
     }};
 
     const std::array<DashboardMetric, 8> secondaryMetrics = {{
         {"NODES", FormatCount(graph.nodes.size()), SafeRatio(static_cast<float>(graph.nodes.size()), 8.0f), theme.accentCyan},
         {"LINKS", FormatCount(graph.edges.size()), SafeRatio(static_cast<float>(graph.edges.size()), 8.0f), theme.accentCyan},
-        {"INGOT RATE", FormatRate(ingotProduced), SafeRatio(ingotProduced, ingotRequired), theme.accentCyan},
-        {"SLURRY MADE", FormatRate(slurryProduced), SafeRatio(slurryProduced, 10.0f), theme.accentAmber},
-        {"SLURRY USED", FormatRate(slurryConsumed), slurryRatio, Mix(theme.accentRed, theme.accentGreen, slurryRatio)},
-        {"SURPLUS INGOT", FormatRate(SurplusRate(production, graph::production_ids::IronIngot)), SafeRatio(SurplusRate(production, graph::production_ids::IronIngot), 50.0f), theme.accentGreen},
-        {"VALIDITY", production.invalidConnectionCount == 0 && !production.hasCycle ? "CLEAR" : "BLOCKED", production.invalidConnectionCount == 0 && !production.hasCycle ? 1.0f : 0.0f, production.invalidConnectionCount == 0 && !production.hasCycle ? theme.accentGreen : theme.accentRed},
-        {"OBJECTIVES", FormatCount(static_cast<int>(production.objectives.size())), SafeRatio(static_cast<float>(production.objectives.size()), 4.0f), theme.accentCyan}
+        {"INGOT", FormatRate(ingotProduced), SafeRatio(ingotProduced, ingotRequired), theme.accentCyan},
+        {"SLURRY OUT", FormatRate(slurryProduced), SafeRatio(slurryProduced, 10.0f), theme.accentAmber},
+        {"SLURRY IN", FormatRate(slurryConsumed), slurryRatio, Mix(theme.accentRed, theme.accentGreen, slurryRatio)},
+        {"SURPLUS", FormatRate(SurplusRate(production, graph::production_ids::IronIngot)), SafeRatio(SurplusRate(production, graph::production_ids::IronIngot), 50.0f), theme.accentGreen},
+        {"GRAPH", production.invalidConnectionCount == 0 && !production.hasCycle ? "CLEAR" : "BLOCKED", production.invalidConnectionCount == 0 && !production.hasCycle ? 1.0f : 0.0f, production.invalidConnectionCount == 0 && !production.hasCycle ? theme.accentGreen : theme.accentRed},
+        {"GOALS", FormatCount(static_cast<int>(production.objectives.size())), SafeRatio(static_cast<float>(production.objectives.size()), 4.0f), theme.accentCyan}
     }};
 
     const std::array<DashboardMetric, 8>& metrics = primaryPanel ? primaryMetrics : secondaryMetrics;
@@ -474,7 +483,7 @@ void DrawStatusChips(Renderer2D& renderer, Rect topBar, const UiTheme& theme, co
 {
     const float chipY = topBar.y + 14.0f;
     const float chipH = 28.0f;
-    const float chipW = 150.0f;
+    const float chipW = 132.0f;
     float x = topBar.x + 250.0f;
 
     const float targetRatio = Clamp01(production.targetSatisfactionRatio);
@@ -507,11 +516,11 @@ void DrawStatusChips(Renderer2D& renderer, Rect topBar, const UiTheme& theme, co
     };
 
     const std::string_view labels[] = {
-        "SCENARIO",
+        "SCENE",
         "TARGET",
         "INGOT",
         "SLURRY",
-        "VALID"
+        "GRAPH"
     };
 
     for (int i = 0; i < 5; ++i)
@@ -801,6 +810,7 @@ Color EventAccentColor(const UiTheme& theme, const std::string& message)
         message.find("Failed") != std::string::npos ||
         message.find("Invalid") != std::string::npos ||
         message.find("invalid") != std::string::npos ||
+        message.find("Bad") != std::string::npos ||
         message.find("incomplete") != std::string::npos ||
         message.find("blocked") != std::string::npos ||
         message.find("exceeds") != std::string::npos ||
@@ -837,7 +847,65 @@ Color EventAccentColor(const UiTheme& theme, const std::string& message)
 
 float EstimateEventWidth(const std::string& message)
 {
-    return std::clamp(34.0f + static_cast<float>(message.size()) * 7.5f, 120.0f, 340.0f);
+    return std::clamp(34.0f + static_cast<float>(message.size()) * 7.0f, 112.0f, 260.0f);
+}
+
+std::string CompactProductionEvent(std::string_view message)
+{
+    // The evaluator keeps detailed messages for tests and diagnostics. The
+    // bottom event strip has limited horizontal space, so UI-facing copies are
+    // shortened without changing solver output.
+    if (message.find("same node") != std::string_view::npos)
+    {
+        return "Bad link: same node";
+    }
+
+    if (message.find("missing endpoint") != std::string_view::npos)
+    {
+        return "Bad link: missing end";
+    }
+
+    if (message.find("output must target input") != std::string_view::npos)
+    {
+        return "Bad link direction";
+    }
+
+    if (message.find("resource mismatch") != std::string_view::npos)
+    {
+        return "Bad link: resource";
+    }
+
+    if (message.find("one edge per port") != std::string_view::npos)
+    {
+        return "Bad link: split/merge";
+    }
+
+    if (message.find("cycle") != std::string_view::npos || message.find("Cycle") != std::string_view::npos)
+    {
+        return "Cycle blocked";
+    }
+
+    if (message.find("missing machine or recipe") != std::string_view::npos)
+    {
+        return "Bad node data";
+    }
+
+    if (message.find("machine cannot run recipe") != std::string_view::npos)
+    {
+        return "Bad recipe match";
+    }
+
+    return std::string(message);
+}
+
+bool IsProductionIssueEvent(std::string_view message)
+{
+    // Objective messages are rendered as compact rate events by App; this keeps
+    // only validation/solver issues from the evaluator event stream.
+    return
+        message.find("Invalid production") != std::string_view::npos ||
+        message.find("cycle") != std::string_view::npos ||
+        message.find("Cycle") != std::string_view::npos;
 }
 
 const char* WireDropFailureMessage(editor::WireDropFailureReason reason)
@@ -938,20 +1006,28 @@ void App::AddEvent(std::string message)
 
 void App::MarkGraphDirty()
 {
-    m_graphDirty = true;
+    // Graph-data mutations invalidate both evaluator outputs. View-only state
+    // such as pan, zoom, hover, selection, and node visual positions is kept out
+    // of this path so the production solver is not recomputed every frame.
+    m_legacyEvaluationDirty = true;
+    m_productionEvaluationDirty = true;
 }
 
 void App::EvaluateGraphIfDirty()
 {
-    if (!m_graphDirty)
+    if (m_legacyEvaluationDirty)
+    {
+        // Keep the legacy evaluator alive for the selected-node inspector while
+        // the dashboard migrates to the new production evaluator. Later patches
+        // can remove this bridge once all UI panels consume ProductionEvaluation.
+        m_simulationResult = graph::EvaluateGraph(m_graph);
+        m_legacyEvaluationDirty = false;
+    }
+
+    if (!m_productionEvaluationDirty)
     {
         return;
     }
-
-    // Keep the legacy evaluator alive for the selected-node inspector while the
-    // dashboard migrates to the new production evaluator. Later patches can
-    // remove this bridge once all UI panels consume ProductionEvaluation.
-    m_simulationResult = graph::EvaluateGraph(m_graph);
 
     const graph::ScenarioDef* scenario = ActiveScenario(m_scenarioCatalog);
     if (scenario != nullptr)
@@ -965,7 +1041,7 @@ void App::EvaluateGraphIfDirty()
         m_productionEvaluation.events.push_back("Scenario missing: Tier 0 Iron Ingot Chain");
     }
 
-    m_graphDirty = false;
+    m_productionEvaluationDirty = false;
 }
 
 void App::UpdateEventLogFromProduction()
@@ -1029,14 +1105,37 @@ void App::UpdateEventLogFromProduction()
         firstUpdate ||
         std::fabs(m_productionEvaluation.targetSatisfactionRatio - m_lastTargetSatisfactionRatio) > 0.001f;
 
+    if (targetRatioChanged || scenarioStateChanged)
+    {
+        const graph::ObjectiveStatus* ingotObjective = FindObjectiveStatus(
+            m_productionEvaluation,
+            graph::ObjectiveKind::ProduceAtLeastRate,
+            graph::production_ids::IronIngot
+        );
+        if (ingotObjective != nullptr)
+        {
+            AddEvent("Ingot " + FormatRatePair(ingotObjective->actualPerMinute, ingotObjective->requiredPerMinute));
+        }
+
+        const graph::ObjectiveStatus* slurryObjective = FindObjectiveStatus(
+            m_productionEvaluation,
+            graph::ObjectiveKind::HandleAllProduced,
+            graph::production_ids::IronSlurry
+        );
+        if (slurryObjective != nullptr)
+        {
+            AddEvent("Slurry " + FormatRatePair(slurryObjective->actualPerMinute, slurryObjective->requiredPerMinute));
+        }
+    }
+
     if (targetRatioChanged || scenarioStateChanged || invalidCountChanged || bottleneckCountChanged)
     {
-        // ProductionEvaluation already formats objective and validation messages
-        // with resource names and rates, so the event log can surface solver
-        // feedback without duplicating catalog lookup logic in the UI layer.
         for (auto it = m_productionEvaluation.events.rbegin(); it != m_productionEvaluation.events.rend(); ++it)
         {
-            AddEvent(*it);
+            if (IsProductionIssueEvent(*it))
+            {
+                AddEvent(CompactProductionEvent(*it));
+            }
         }
     }
 

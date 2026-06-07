@@ -63,7 +63,12 @@ private:
     graph::ProductionEvaluation m_productionEvaluation;
     std::vector<std::string> m_eventLog;
 
-    bool m_graphDirty = true;
+    // Legacy and production evaluation have separate dirty flags so the new
+    // production solver is only recomputed after graph-data mutations. View-only
+    // edits such as pan, zoom, selection, and node dragging do not change recipe
+    // rates and should not invalidate production results.
+    bool m_legacyEvaluationDirty = true;
+    bool m_productionEvaluationDirty = true;
 
     int m_lastSelectedEdgeHintId = -1;
 
