@@ -303,9 +303,87 @@ bool RunGraphViewCameraPersistenceCase()
         Check(loadedState.view.selectedEdgeId == view.selectedEdgeId, "edge selection case should restore selected edge");
 }
 
+
+bool RunRecipeConfiguredNodePersistenceCase()
+{
+    // Regression coverage for Add Node and recipe-selection workflows: recipe
+    // nodes are created, reconfigured, then saved and loaded with catalog IDs,
+    // generated ports, view position, camera state, and selection intact.
+    graph::GraphDocument graph;
+    graph::ResourceCatalog resources;
+    graph::MachineCatalog machines;
+    graph::RecipeCatalog recipes;
+    editor::GraphViewState view;
+
+    const int sourceNodeId = graph::AddRecipeNode(
+        graph,
+        graph::production_ids::ResourceSource,
+        graph::production_ids::ExtractIronOre,
+        machines,
+        recipes,
+        resources
+    );
+
+    if (!Check(sourceNodeId > 0, "recipe source node should be created"))
+    {
+        return false;
+    }
+
+    if (!graph::ConfigureNodeFromRecipe(
+            graph,
+            sourceNodeId,
+            graph::production_ids::ResourceSource,
+            graph::production_ids::SupplyWater,
+            machines,
+            recipes,
+            resources))
+    {
+        return Check(false, "recipe source node should switch recipes");
+    }
+
+    editor::EnsureNodeVisuals(view, graph);
+    view.cameraOffset = {42.0f, -18.0f};
+    view.zoom = 1.2f;
+    view.selectedNodeId = sourceNodeId;
+
+    auto visualIt = view.nodeVisuals.find(sourceNodeId);
+    if (!Check(visualIt != view.nodeVisuals.end(), "recipe node visual should exist before save"))
+    {
+        return false;
+    }
+
+    visualIt->second.position = {320.0f, 144.0f};
+    visualIt->second.size = {148.0f, 76.0f};
+    visualIt->second.selected = true;
+
+    LoadedGraphState loadedState;
+    if (!SaveAndLoadOnce(graph, view, loadedState))
+    {
+        return false;
+    }
+
+    const graph::GraphNode* loadedNode = graph::FindNode(loadedState.graph, sourceNodeId);
+    if (!Check(loadedNode != nullptr, "loaded recipe node should exist"))
+    {
+        return false;
+    }
+
+    return
+        CheckGraph(loadedState.graph, graph) &&
+        CheckView(loadedState.view, view) &&
+        Check(loadedNode->machineId == graph::production_ids::ResourceSource, "loaded machine id should persist") &&
+        Check(loadedNode->recipeId == graph::production_ids::SupplyWater, "loaded switched recipe id should persist") &&
+        Check(loadedNode->inputs.empty(), "loaded switched source should have no inputs") &&
+        Check(loadedNode->outputs.size() == 1, "loaded switched source should have one output") &&
+        Check(loadedNode->outputs[0].productionResourceId == graph::production_ids::Water, "loaded switched source should output water");
+}
+
+
 int RunGraphSerializerRoundTripTest()
 {
-    if (!RunPrimaryRoundTripCase() || !RunGraphViewCameraPersistenceCase())
+    if (!RunPrimaryRoundTripCase() ||
+        !RunGraphViewCameraPersistenceCase() ||
+        !RunRecipeConfiguredNodePersistenceCase())
     {
         return 1;
     }
