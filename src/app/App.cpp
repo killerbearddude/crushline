@@ -352,7 +352,6 @@ struct DashboardMetric
 {
     std::string_view label;
     std::string valueText;
-    float ratio = 0.0f;
     Color accent{};
 };
 
@@ -380,39 +379,24 @@ void DrawMetricRow(
     Renderer2D& renderer,
     Rect row,
     const UiTheme& theme,
-    const DashboardMetric& metric,
-    int index
+    const DashboardMetric& metric
 )
 {
-    const Color rowColor = (index % 2) == 0 ? theme.panelAlt : theme.panel;
+    // Compact side-panel metrics intentionally avoid mini progress bars and
+    // boxed rows. Without true text measurement or clipping, dense row chrome
+    // reads like a strikethrough and makes the labels harder to scan.
+    renderer.DrawRect({row.x + 8.0f, row.y + 7.0f, 5.0f, 7.0f}, metric.accent);
+    renderer.DrawText({row.x + 22.0f, row.y + 2.0f}, metric.label, theme.textSecondary);
 
-    renderer.DrawRect(row, rowColor);
-    renderer.DrawRectOutline(row, theme.panelBorder, 1.0f);
-    renderer.DrawRect({row.x + 8.0f, row.y + 8.0f, 5.0f, row.h - 16.0f}, metric.accent);
-
-    renderer.DrawText({row.x + 24.0f, row.y + 5.0f}, metric.label, theme.textSecondary);
-
-    // Text rendering is intentionally simple and does not clip per row yet.
-    // Approximate right alignment keeps compact values from colliding with
-    // labels in narrow side panels until real text measurement lands.
+    // Approximate right alignment keeps the value column stable until the
+    // renderer exposes real glyph measurement. The clamp prevents long values
+    // from backing into the label column on narrow panels.
     const float estimatedValueWidth = std::clamp(
         static_cast<float>(metric.valueText.size()) * 6.0f,
-        24.0f,
-        68.0f
+        20.0f,
+        70.0f
     );
-    renderer.DrawText({row.x + row.w - 10.0f - estimatedValueWidth, row.y + 5.0f}, metric.valueText, theme.textMuted);
-
-    const Rect bar = {
-        row.x + 24.0f,
-        row.y + row.h - 10.0f,
-        row.w - 36.0f,
-        4.0f
-    };
-
-    DrawProgressBar(renderer, bar, theme, metric.ratio, metric.accent);
-
-    const float markerX = bar.x + bar.w * Clamp01(metric.ratio);
-    renderer.DrawLine({markerX, row.y + 6.0f}, {markerX, row.y + row.h - 6.0f}, theme.textMuted, 1.0f);
+    renderer.DrawText({row.x + row.w - 8.0f - estimatedValueWidth, row.y + 2.0f}, metric.valueText, theme.textMuted);
 }
 
 void DrawDashboardMetrics(
@@ -425,8 +409,9 @@ void DrawDashboardMetrics(
 )
 {
     const Rect content = InsetRect(panel, theme.panelPadding);
-    const float rowHeight = 25.0f;
-    const float startY = panel.y + 42.0f;
+    const float rowHeight = 20.0f;
+    const float rowGap = 7.0f;
+    const float startY = panel.y + 44.0f;
 
     const graph::ObjectiveStatus* ingotObjective = FindObjectiveStatus(
         production,
@@ -442,48 +427,45 @@ void DrawDashboardMetrics(
         graph::ObjectiveKind::HandleAllProduced,
         graph::production_ids::IronSlurry
     );
-    const float invalidRatio = SafeRatio(static_cast<float>(production.invalidConnectionCount), 3.0f);
-    const float bottleneckRatio = SafeRatio(static_cast<float>(production.bottleneckCount), 3.0f);
     const float targetRatio = Clamp01(production.targetSatisfactionRatio);
-    const float completeRatio = production.scenarioComplete ? 1.0f : 0.0f;
 
     const std::array<DashboardMetric, 8> primaryMetrics = {{
-        {"SCENARIO", production.scenarioComplete ? "DONE" : "OPEN", completeRatio, production.scenarioComplete ? theme.accentGreen : theme.accentAmber},
-        {"TARGETS", FormatPercent(targetRatio), targetRatio, Mix(theme.accentAmber, theme.accentGreen, targetRatio)},
-        {"INGOT", FormatRatePair(ingotProduced, ingotRequired), SafeRatio(ingotProduced, ingotRequired), theme.accentCyan},
-        {"SLURRY", FormatRatePair(slurryConsumed, slurryProduced), slurryRatio, Mix(theme.accentRed, theme.accentGreen, slurryRatio)},
-        {"POWER", FormatPower(production.totalPowerKw), SafeRatio(production.totalPowerKw, 600.0f), AlertColor(theme, SafeRatio(production.totalPowerKw, 600.0f))},
-        {"WASTE", FormatRate(production.totalWastePerMinute), SafeRatio(production.totalWastePerMinute, 50.0f), AlertColor(theme, SafeRatio(production.totalWastePerMinute, 50.0f))},
-        {"BAD LINKS", FormatCount(production.invalidConnectionCount), invalidRatio, production.invalidConnectionCount == 0 ? theme.accentGreen : theme.accentRed},
-        {"BLOCKS", FormatCount(production.bottleneckCount), bottleneckRatio, production.bottleneckCount == 0 ? theme.accentGreen : theme.accentAmber}
+        {"SCENARIO", production.scenarioComplete ? "DONE" : "OPEN", production.scenarioComplete ? theme.accentGreen : theme.accentAmber},
+        {"TARGETS", FormatPercent(targetRatio), Mix(theme.accentAmber, theme.accentGreen, targetRatio)},
+        {"INGOT", FormatRatePair(ingotProduced, ingotRequired), theme.accentCyan},
+        {"SLURRY", FormatRatePair(slurryConsumed, slurryProduced), Mix(theme.accentRed, theme.accentGreen, slurryRatio)},
+        {"POWER", FormatPower(production.totalPowerKw), AlertColor(theme, SafeRatio(production.totalPowerKw, 600.0f))},
+        {"WASTE", FormatRate(production.totalWastePerMinute), AlertColor(theme, SafeRatio(production.totalWastePerMinute, 50.0f))},
+        {"BAD LINKS", FormatCount(production.invalidConnectionCount), production.invalidConnectionCount == 0 ? theme.accentGreen : theme.accentRed},
+        {"BLOCKS", FormatCount(production.bottleneckCount), production.bottleneckCount == 0 ? theme.accentGreen : theme.accentAmber}
     }};
 
     const std::array<DashboardMetric, 8> secondaryMetrics = {{
-        {"NODES", FormatCount(graph.nodes.size()), SafeRatio(static_cast<float>(graph.nodes.size()), 8.0f), theme.accentCyan},
-        {"LINKS", FormatCount(graph.edges.size()), SafeRatio(static_cast<float>(graph.edges.size()), 8.0f), theme.accentCyan},
-        {"INGOT", FormatRate(ingotProduced), SafeRatio(ingotProduced, ingotRequired), theme.accentCyan},
-        {"SLURRY OUT", FormatRate(slurryProduced), SafeRatio(slurryProduced, 10.0f), theme.accentAmber},
-        {"SLURRY IN", FormatRate(slurryConsumed), slurryRatio, Mix(theme.accentRed, theme.accentGreen, slurryRatio)},
-        {"SURPLUS", FormatRate(SurplusRate(production, graph::production_ids::IronIngot)), SafeRatio(SurplusRate(production, graph::production_ids::IronIngot), 50.0f), theme.accentGreen},
-        {"GRAPH", production.invalidConnectionCount == 0 && !production.hasCycle ? "CLEAR" : "BLOCKED", production.invalidConnectionCount == 0 && !production.hasCycle ? 1.0f : 0.0f, production.invalidConnectionCount == 0 && !production.hasCycle ? theme.accentGreen : theme.accentRed},
-        {"GOALS", FormatCount(static_cast<int>(production.objectives.size())), SafeRatio(static_cast<float>(production.objectives.size()), 4.0f), theme.accentCyan}
+        {"NODES", FormatCount(graph.nodes.size()), theme.accentCyan},
+        {"LINKS", FormatCount(graph.edges.size()), theme.accentCyan},
+        {"INGOT", FormatRate(ingotProduced), theme.accentCyan},
+        {"SLURRY OUT", FormatRate(slurryProduced), theme.accentAmber},
+        {"SLURRY IN", FormatRate(slurryConsumed), Mix(theme.accentRed, theme.accentGreen, slurryRatio)},
+        {"SURPLUS", FormatRate(SurplusRate(production, graph::production_ids::IronIngot)), theme.accentGreen},
+        {"GRAPH", production.invalidConnectionCount == 0 && !production.hasCycle ? "CLEAR" : "BLOCKED", production.invalidConnectionCount == 0 && !production.hasCycle ? theme.accentGreen : theme.accentRed},
+        {"GOALS", FormatCount(static_cast<int>(production.objectives.size())), theme.accentCyan}
     }};
 
     const std::array<DashboardMetric, 8>& metrics = primaryPanel ? primaryMetrics : secondaryMetrics;
 
     for (int i = 0; i < 8; ++i)
     {
-        const float y = startY + static_cast<float>(i) * (rowHeight + 5.0f);
+        const float y = startY + static_cast<float>(i) * (rowHeight + rowGap);
         const Rect row = {content.x, y, content.w, rowHeight};
-        DrawMetricRow(renderer, row, theme, metrics[static_cast<std::size_t>(i)], i);
+        DrawMetricRow(renderer, row, theme, metrics[static_cast<std::size_t>(i)]);
     }
 }
 
 void DrawStatusChips(Renderer2D& renderer, Rect topBar, const UiTheme& theme, const graph::ProductionEvaluation& production)
 {
-    const float chipY = topBar.y + 16.0f;
-    const float chipH = 24.0f;
-    const float chipW = 124.0f;
+    const float chipY = topBar.y + 17.0f;
+    const float chipH = 22.0f;
+    const float chipW = 118.0f;
     float x = topBar.x + 250.0f;
 
     const float targetRatio = Clamp01(production.targetSatisfactionRatio);
@@ -498,14 +480,6 @@ void DrawStatusChips(Renderer2D& renderer, Rect topBar, const UiTheme& theme, co
         graph::production_ids::IronSlurry
     );
     const float validityRatio = production.invalidConnectionCount == 0 && !production.hasCycle ? 1.0f : 0.0f;
-
-    const float values[] = {
-        production.scenarioComplete ? 1.0f : 0.0f,
-        targetRatio,
-        ingotRatio,
-        slurryRatio,
-        validityRatio
-    };
 
     const Color accents[] = {
         production.scenarioComplete ? theme.accentGreen : theme.accentAmber,
@@ -528,9 +502,8 @@ void DrawStatusChips(Renderer2D& renderer, Rect topBar, const UiTheme& theme, co
         const Rect chip = {x, chipY, chipW, chipH};
         renderer.DrawRect(chip, theme.panel);
         renderer.DrawRectOutline(chip, theme.panelBorder, 1.0f);
-        renderer.DrawRect({chip.x + 10.0f, chip.y + 7.0f, 4.0f, 10.0f}, accents[i]);
+        renderer.DrawRect({chip.x + 10.0f, chip.y + 6.0f, 4.0f, 10.0f}, accents[i]);
         renderer.DrawText({chip.x + 24.0f, chip.y + 3.0f}, labels[i], theme.textSecondary);
-        DrawProgressBar(renderer, {chip.x + 24.0f, chip.y + 17.0f, chip.w - 38.0f, 3.0f}, theme, values[i], accents[i]);
         x += chipW + 10.0f;
     }
 }
