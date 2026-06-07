@@ -45,10 +45,41 @@ public:
     bool ShouldClose() const;
 
 private:
+    struct AddNodeMenuEntry
+    {
+        std::string label;
+        std::string searchText;
+        graph::MachineId machineId = graph::InvalidMachineId;
+        graph::RecipeId recipeId = graph::InvalidRecipeId;
+    };
+
     void AddEvent(std::string message);
     void MarkGraphDirty();
     void EvaluateGraphIfDirty();
     void UpdateEventLogFromProduction();
+
+    // Rebuilds the Add Node menu from the current Tier 0 catalogs. The menu is
+    // catalog-backed so node creation uses the same recipe IDs as the evaluator.
+    void RebuildAddNodeMenuEntries();
+
+    // Opens the Add Node menu at a canvas-space position where the chosen node
+    // should be created.
+    void OpenAddNodeMenu(Vec2 canvasPosition);
+
+    // Closes the Add Node menu and disables SDL text input.
+    void CloseAddNodeMenu();
+
+    // Returns Add Node entries matching the current search text. The returned
+    // indices point into m_addNodeMenuEntries and are valid until that vector is
+    // rebuilt.
+    [[nodiscard]] std::vector<std::size_t> FilteredAddNodeEntryIndices() const;
+
+    // Handles text filtering, keyboard selection, and recipe-node creation while
+    // the Add Node menu owns input for the frame.
+    void UpdateAddNodeMenuInput(std::vector<std::string>& dashboardEvents);
+
+    // Draws the Add Node overlay over the graph canvas.
+    void DrawAddNodeMenu(Rect graphCanvas);
 
     AppConfig m_config;
     DashboardLayoutMetrics m_layoutMetrics;
@@ -62,6 +93,16 @@ private:
     graph::ScenarioCatalog m_scenarioCatalog;
     graph::ProductionEvaluation m_productionEvaluation;
     std::vector<std::string> m_eventLog;
+
+    std::vector<AddNodeMenuEntry> m_addNodeMenuEntries;
+    std::string m_addNodeSearchText;
+    Vec2 m_addNodeMenuCanvasPosition{};
+    int m_addNodeSelectedIndex = 0;
+    bool m_addNodeMenuOpen = false;
+
+    // Prevents the key used to open the menu from also being consumed as the
+    // first search/navigation input on the same frame.
+    bool m_addNodeMenuSuppressInputThisFrame = false;
 
     // Legacy and production evaluation have separate dirty flags so the new
     // production solver is only recomputed after graph-data mutations. View-only

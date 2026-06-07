@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <iostream>
@@ -31,6 +32,56 @@ std::string GraphSummary(std::size_t nodeCount, std::size_t edgeCount)
 std::string GraphSummary(const graph::GraphDocument& graph)
 {
     return GraphSummary(graph.nodes.size(), graph.edges.size());
+}
+
+std::string LowercaseCopy(std::string_view text)
+{
+    std::string lowered;
+    lowered.reserve(text.size());
+
+    for (const unsigned char ch : text)
+    {
+        lowered.push_back(static_cast<char>(std::tolower(ch)));
+    }
+
+    return lowered;
+}
+
+bool PointInsideRect(Vec2 point, Rect rect)
+{
+    return
+        point.x >= rect.x &&
+        point.y >= rect.y &&
+        point.x <= rect.x + rect.w &&
+        point.y <= rect.y + rect.h;
+}
+
+std::string AddNodeEntryDisplayName(const graph::MachineDef& machine, const graph::RecipeDef& recipe)
+{
+    // Source recipes are presented as concrete source nodes because that is the
+    // first player-facing Add Node flow. Other recipes show machine / recipe.
+    if (recipe.id == graph::production_ids::ExtractIronOre)
+    {
+        return "Iron Ore Source";
+    }
+
+    if (recipe.id == graph::production_ids::SupplyWater)
+    {
+        return "Water Source";
+    }
+
+    return machine.displayName + " / " + recipe.displayName;
+}
+
+std::string AddNodeSearchText(const graph::MachineDef& machine, const graph::RecipeDef& recipe, std::string_view label)
+{
+    return LowercaseCopy(
+        std::string(label) + " " +
+        machine.key + " " +
+        machine.displayName + " " +
+        recipe.key + " " +
+        recipe.displayName
+    );
 }
 
 const graph::GraphEdge* FindEventEdge(const graph::GraphDocument& graph, int edgeId)
@@ -1121,6 +1172,270 @@ void App::UpdateEventLogFromProduction()
     m_eventLogPrimed = true;
 }
 
+
+void App::RebuildAddNodeMenuEntries()
+{
+    m_addNodeMenuEntries.clear();
+    m_addNodeMenuEntries.reserve(m_recipeCatalog.All().size());
+
+    for (const graph::RecipeDef& recipe : m_recipeCatalog.All())
+    {
+        if (recipe.tier != graph::TechTier::Tier0)
+        {
+            continue;
+        }
+
+        const graph::MachineDef* machine = m_machineCatalog.FindByClass(recipe.requiredMachineClass);
+        if (machine == nullptr || machine->tier != graph::TechTier::Tier0)
+        {
+            continue;
+        }
+
+        const std::string label = AddNodeEntryDisplayName(*machine, recipe);
+        m_addNodeMenuEntries.push_back({
+            label,
+            AddNodeSearchText(*machine, recipe, label),
+            machine->id,
+            recipe.id
+        });
+    }
+}
+
+void App::OpenAddNodeMenu(Vec2 canvasPosition)
+{
+    if (m_addNodeMenuEntries.empty())
+    {
+        RebuildAddNodeMenuEntries();
+    }
+
+    m_addNodeMenuOpen = true;
+    m_addNodeMenuCanvasPosition = canvasPosition;
+    m_addNodeSearchText.clear();
+    m_addNodeSelectedIndex = 0;
+    m_addNodeMenuSuppressInputThisFrame = true;
+    m_window.SetTextInputEnabled(true);
+}
+
+void App::CloseAddNodeMenu()
+{
+    if (!m_addNodeMenuOpen)
+    {
+        return;
+    }
+
+    m_addNodeMenuOpen = false;
+    m_addNodeSearchText.clear();
+    m_addNodeSelectedIndex = 0;
+    m_addNodeMenuSuppressInputThisFrame = false;
+    m_window.SetTextInputEnabled(false);
+}
+
+std::vector<std::size_t> App::FilteredAddNodeEntryIndices() const
+{
+    std::vector<std::size_t> filtered;
+    const std::string query = LowercaseCopy(m_addNodeSearchText);
+
+    for (std::size_t i = 0; i < m_addNodeMenuEntries.size(); ++i)
+    {
+        const AddNodeMenuEntry& entry = m_addNodeMenuEntries[i];
+
+        if (query.empty() || entry.searchText.find(query) != std::string::npos)
+        {
+            filtered.push_back(i);
+        }
+    }
+
+    return filtered;
+}
+
+void App::UpdateAddNodeMenuInput(std::vector<std::string>& dashboardEvents)
+{
+    if (!m_addNodeMenuOpen)
+    {
+        return;
+    }
+
+    if (m_addNodeMenuSuppressInputThisFrame)
+    {
+        m_addNodeMenuSuppressInputThisFrame = false;
+        return;
+    }
+
+    if (!m_input.textInput.empty())
+    {
+        // The Tier 0 catalog uses ASCII display names, but SDL provides UTF-8.
+        // Keep the stored search string intact and do byte-based filtering for
+        // this MVP; future text editing can add cursor-aware UTF-8 utilities.
+        m_addNodeSearchText += m_input.textInput;
+
+        constexpr std::size_t MaxSearchChars = 48;
+        if (m_addNodeSearchText.size() > MaxSearchChars)
+        {
+            m_addNodeSearchText.resize(MaxSearchChars);
+        }
+
+        m_addNodeSelectedIndex = 0;
+    }
+
+    if (m_input.keyBackspacePressed && !m_addNodeSearchText.empty())
+    {
+        m_addNodeSearchText.pop_back();
+
+        // Remove UTF-8 continuation bytes if a non-ASCII character was entered.
+        // This keeps the search field from displaying a malformed trailing byte.
+        while (!m_addNodeSearchText.empty() &&
+               (static_cast<unsigned char>(m_addNodeSearchText.back()) & 0xC0) == 0x80)
+        {
+            m_addNodeSearchText.pop_back();
+        }
+
+        m_addNodeSelectedIndex = 0;
+    }
+
+    const std::vector<std::size_t> filtered = FilteredAddNodeEntryIndices();
+
+    if (filtered.empty())
+    {
+        m_addNodeSelectedIndex = 0;
+        return;
+    }
+
+    m_addNodeSelectedIndex = std::clamp(
+        m_addNodeSelectedIndex,
+        0,
+        static_cast<int>(filtered.size()) - 1
+    );
+
+    if (m_input.keyTabPressed)
+    {
+        const int direction = m_input.keyShiftDown ? -1 : 1;
+        const int count = static_cast<int>(filtered.size());
+        m_addNodeSelectedIndex = (m_addNodeSelectedIndex + direction + count) % count;
+    }
+
+    if (!m_input.keyEnterPressed)
+    {
+        return;
+    }
+
+    const AddNodeMenuEntry& entry = m_addNodeMenuEntries[filtered[static_cast<std::size_t>(m_addNodeSelectedIndex)]];
+    const int nodeId = graph::AddRecipeNode(
+        m_graph,
+        entry.machineId,
+        entry.recipeId,
+        m_machineCatalog,
+        m_recipeCatalog,
+        m_resourceCatalog
+    );
+
+    if (nodeId <= 0)
+    {
+        dashboardEvents.push_back("Node add failed: " + entry.label);
+        CloseAddNodeMenu();
+        return;
+    }
+
+    editor::EnsureNodeVisuals(m_graphView, m_graph);
+
+    auto visualIt = m_graphView.nodeVisuals.find(nodeId);
+    if (visualIt != m_graphView.nodeVisuals.end())
+    {
+        visualIt->second.position = m_addNodeMenuCanvasPosition;
+    }
+
+    m_graphView.selectedNodeId = nodeId;
+    m_graphView.selectedEdgeId = -1;
+    m_graphView.hoveredEdgeId = -1;
+    m_graphView.draggingNodeId = -1;
+
+    for (auto& [visualNodeId, visual] : m_graphView.nodeVisuals)
+    {
+        visual.selected = visualNodeId == nodeId;
+    }
+
+    MarkGraphDirty();
+    dashboardEvents.push_back("Node added: " + entry.label);
+    CloseAddNodeMenu();
+}
+
+void App::DrawAddNodeMenu(Rect graphCanvas)
+{
+    if (!m_addNodeMenuOpen)
+    {
+        return;
+    }
+
+    const std::vector<std::size_t> filtered = FilteredAddNodeEntryIndices();
+    const int visibleRows = std::min(static_cast<int>(filtered.size()), 6);
+
+    constexpr float PanelWidth = 360.0f;
+    constexpr float HeaderHeight = 58.0f;
+    constexpr float RowHeight = 23.0f;
+    constexpr float Padding = 10.0f;
+
+    const float panelHeight = HeaderHeight + RowHeight * static_cast<float>(std::max(visibleRows, 1)) + Padding;
+    const Vec2 anchor = editor::CanvasToScreen(m_addNodeMenuCanvasPosition, m_graphView, graphCanvas);
+
+    const float minX = graphCanvas.x + 10.0f;
+    const float minY = graphCanvas.y + 10.0f;
+    const float maxX = std::max(minX, graphCanvas.x + graphCanvas.w - PanelWidth - 10.0f);
+    const float maxY = std::max(minY, graphCanvas.y + graphCanvas.h - panelHeight - 10.0f);
+
+    const Rect panel = {
+        std::clamp(anchor.x, minX, maxX),
+        std::clamp(anchor.y, minY, maxY),
+        PanelWidth,
+        panelHeight
+    };
+
+    m_renderer.DrawRect(panel, m_theme.panelAlt);
+    m_renderer.DrawRect(TopSlice(panel, 28.0f), m_theme.panelHeader);
+    m_renderer.DrawRectOutline(panel, m_theme.panelBorder, m_theme.borderThickness);
+
+    m_renderer.DrawText({panel.x + 12.0f, panel.y + 8.0f}, "ADD NODE", m_theme.textSecondary);
+
+    const std::string searchLabel = m_addNodeSearchText.empty()
+        ? "Search Tier 0 recipes..."
+        : "Search: " + m_addNodeSearchText;
+
+    m_renderer.DrawText({panel.x + 12.0f, panel.y + 34.0f}, searchLabel, m_theme.textMuted);
+
+    if (filtered.empty())
+    {
+        m_renderer.DrawText(
+            {panel.x + 12.0f, panel.y + HeaderHeight + 4.0f},
+            "No matching recipe nodes",
+            m_theme.textMuted
+        );
+        return;
+    }
+
+    for (int row = 0; row < visibleRows; ++row)
+    {
+        const bool selected = row == m_addNodeSelectedIndex;
+        const Rect rowRect = {
+            panel.x + 8.0f,
+            panel.y + HeaderHeight + static_cast<float>(row) * RowHeight,
+            panel.w - 16.0f,
+            RowHeight - 2.0f
+        };
+
+        if (selected)
+        {
+            m_renderer.DrawRect(rowRect, m_theme.panelHeader);
+            m_renderer.DrawRectOutline(rowRect, m_theme.accentCyan, 1.0f);
+        }
+
+        const AddNodeMenuEntry& entry = m_addNodeMenuEntries[filtered[static_cast<std::size_t>(row)]];
+        m_renderer.DrawText(
+            {rowRect.x + 8.0f, rowRect.y + 4.0f},
+            (selected ? "> " : "  ") + entry.label,
+            selected ? m_theme.textPrimary : m_theme.textSecondary
+        );
+    }
+}
+
+
 bool App::Initialize(const AppConfig& config)
 {
     m_config = config;
@@ -1138,6 +1453,7 @@ bool App::Initialize(const AppConfig& config)
 
     m_graph = graph::CreateSampleFactoryGraph();
     m_graphView = editor::CreateSampleFactoryGraphView(m_graph);
+    RebuildAddNodeMenuEntries();
     MarkGraphDirty();
     EvaluateGraphIfDirty();
     UpdateEventLogFromProduction();
@@ -1155,7 +1471,7 @@ bool App::Initialize(const AppConfig& config)
     }
     else
     {
-        std::cout << "Press Escape or close the window to quit. Ctrl+R resets, Ctrl+S saves, Ctrl+L loads.\n";
+        std::cout << "Press Escape or close the window to quit. A/Tab opens Add Node. Ctrl+R resets, Ctrl+S saves, Ctrl+L loads.\n";
     }
 
     return true;
@@ -1171,7 +1487,14 @@ void App::RunFrame()
 
     if (m_input.keyEscapePressed)
     {
-        m_shouldClose = true;
+        if (m_addNodeMenuOpen)
+        {
+            CloseAddNodeMenu();
+        }
+        else
+        {
+            m_shouldClose = true;
+        }
     }
 
     std::vector<std::string> dashboardEvents;
@@ -1180,6 +1503,7 @@ void App::RunFrame()
     {
         m_graph = graph::CreateSampleFactoryGraph();
         m_graphView = editor::CreateSampleFactoryGraphView(m_graph);
+        CloseAddNodeMenu();
         m_lastSelectedEdgeHintId = -1;
         MarkGraphDirty();
         dashboardEvents.push_back("Sample graph reset: " + GraphSummary(m_graph));
@@ -1206,6 +1530,7 @@ void App::RunFrame()
         std::string errorMessage;
         if (graph::LoadGraphFromFile(m_graph, m_graphView, CurrentGraphPath, &errorMessage))
         {
+            CloseAddNodeMenu();
             m_lastSelectedEdgeHintId = -1;
             MarkGraphDirty();
             dashboardEvents.push_back("Graph loaded: " + GraphSummary(m_graph));
@@ -1227,7 +1552,40 @@ void App::RunFrame()
     editor::EnsureNodeVisuals(m_graphView, m_graph);
     const graph::GraphDocument previousGraph = m_graph;
 
-    if (editor::UpdateGraphViewInteraction(m_graphView, m_graph, m_input, regions.graphCanvas))
+    bool addNodeMenuConsumedInput = m_addNodeMenuOpen;
+    const bool mouseInGraphCanvas = PointInsideRect(m_input.mousePosition, regions.graphCanvas);
+    const bool openAddNodeFromKeyboard =
+        !m_input.keyCtrlDown &&
+        !m_addNodeMenuOpen &&
+        (m_input.keyAPressed || m_input.keyTabPressed);
+
+    const bool openAddNodeFromMouse =
+        !m_addNodeMenuOpen &&
+        m_input.rightMousePressed &&
+        mouseInGraphCanvas;
+
+    if (openAddNodeFromKeyboard || openAddNodeFromMouse)
+    {
+        const Vec2 anchorScreen = mouseInGraphCanvas
+            ? m_input.mousePosition
+            : Vec2{
+                regions.graphCanvas.x + regions.graphCanvas.w * 0.5f,
+                regions.graphCanvas.y + regions.graphCanvas.h * 0.5f
+            };
+
+        OpenAddNodeMenu(editor::ScreenToCanvas(anchorScreen, m_graphView, regions.graphCanvas));
+        dashboardEvents.push_back("Add Node: search Tier 0 recipes");
+        addNodeMenuConsumedInput = true;
+    }
+
+    if (m_addNodeMenuOpen)
+    {
+        UpdateAddNodeMenuInput(dashboardEvents);
+        addNodeMenuConsumedInput = true;
+    }
+
+    if (!addNodeMenuConsumedInput &&
+        editor::UpdateGraphViewInteraction(m_graphView, m_graph, m_input, regions.graphCanvas))
     {
         MarkGraphDirty();
         QueueGraphMutationEvents(dashboardEvents, previousGraph, m_graph);
@@ -1283,6 +1641,7 @@ void App::RunFrame()
     DrawSelectedNodeInspector(m_renderer, regions.inspector, m_theme, m_graph, m_graphView, m_simulationResult);
 
     editor::DrawGraphView(m_renderer, m_graph, m_graphView, regions.graphCanvas, m_theme);
+    DrawAddNodeMenu(regions.graphCanvas);
 
     const std::size_t drawCommandCount = m_renderer.CommandCount();
     m_renderer.Flush();
