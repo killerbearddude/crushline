@@ -123,6 +123,27 @@ Rect OverlayRowRect(Rect panel, float headerHeight, int row)
     };
 }
 
+int HitTestOverlayRow(Vec2 point, Rect panel, float headerHeight, int visibleRows)
+{
+    for (int row = 0; row < visibleRows; ++row)
+    {
+        if (PointInsideRect(point, OverlayRowRect(panel, headerHeight, row)))
+        {
+            return row;
+        }
+    }
+
+    return -1;
+}
+
+bool IsOverlayOutsideClick(Vec2 point, Rect panel)
+{
+    // Overlay update code uses outside clicks as a close gesture. Keeping the
+    // panel-boundary test centralized prevents Add Node and recipe selection
+    // from drifting when their row hit tests evolve.
+    return !PointInsideRect(point, panel);
+}
+
 std::string AddNodeEntryDisplayName(const graph::MachineDef& machine, const graph::RecipeDef& recipe)
 {
     // Source recipes are presented as concrete source nodes because that is the
@@ -1380,17 +1401,12 @@ void App::UpdateAddNodeMenuInput(std::vector<std::string>& dashboardEvents, Rect
     int clickedRow = -1;
     if (m_input.leftMousePressed)
     {
-        for (int row = 0; row < visibleRows; ++row)
+        clickedRow = HitTestOverlayRow(m_input.mousePosition, panel, AddNodeHeaderHeight, visibleRows);
+        if (clickedRow >= 0)
         {
-            if (PointInsideRect(m_input.mousePosition, OverlayRowRect(panel, AddNodeHeaderHeight, row)))
-            {
-                clickedRow = row;
-                m_addNodeSelectedIndex = row;
-                break;
-            }
+            m_addNodeSelectedIndex = clickedRow;
         }
-
-        if (clickedRow < 0 && !PointInsideRect(m_input.mousePosition, panel))
+        else if (IsOverlayOutsideClick(m_input.mousePosition, panel))
         {
             CloseAddNodeMenu();
             return;
@@ -1621,17 +1637,12 @@ void App::UpdateRecipeSelectionMenuInput(std::vector<std::string>& dashboardEven
     int clickedRow = -1;
     if (m_input.leftMousePressed)
     {
-        for (int row = 0; row < visibleRows; ++row)
+        clickedRow = HitTestOverlayRow(m_input.mousePosition, panel, RecipeSelectionHeaderHeight, visibleRows);
+        if (clickedRow >= 0)
         {
-            if (PointInsideRect(m_input.mousePosition, OverlayRowRect(panel, RecipeSelectionHeaderHeight, row)))
-            {
-                clickedRow = row;
-                m_recipeSelectionSelectedIndex = row;
-                break;
-            }
+            m_recipeSelectionSelectedIndex = clickedRow;
         }
-
-        if (clickedRow < 0 && !PointInsideRect(m_input.mousePosition, panel))
+        else if (IsOverlayOutsideClick(m_input.mousePosition, panel))
         {
             CloseRecipeSelectionMenu();
             return;
