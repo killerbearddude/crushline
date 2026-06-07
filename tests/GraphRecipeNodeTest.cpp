@@ -373,6 +373,115 @@ bool CheckReconfigureRemovesStaleEdges()
         Check(FindOutputByProductionResource(*reconfiguredSource, graph::production_ids::Water) != nullptr, "source should now output water");
 }
 
+bool CheckSourceRecipeNodeNames()
+{
+    // Source nodes need recipe-specific names because multiple source recipes
+    // share one machine class. Processing and sink nodes intentionally keep
+    // compact machine names so graph cards stay readable.
+    const CatalogSet catalogs;
+    graph::GraphDocument graph;
+
+    const int ironSourceId = graph::AddRecipeNode(
+        graph,
+        graph::production_ids::ResourceSource,
+        graph::production_ids::ExtractIronOre,
+        catalogs.machines,
+        catalogs.recipes,
+        catalogs.resources
+    );
+
+    const int waterSourceId = graph::AddRecipeNode(
+        graph,
+        graph::production_ids::ResourceSource,
+        graph::production_ids::SupplyWater,
+        catalogs.machines,
+        catalogs.recipes,
+        catalogs.resources
+    );
+
+    const int crusherId = graph::AddRecipeNode(
+        graph,
+        graph::production_ids::Crusher,
+        graph::production_ids::CrushIronOre,
+        catalogs.machines,
+        catalogs.recipes,
+        catalogs.resources
+    );
+
+    const int washerId = graph::AddRecipeNode(
+        graph,
+        graph::production_ids::Washer,
+        graph::production_ids::WashCrushedIronOre,
+        catalogs.machines,
+        catalogs.recipes,
+        catalogs.resources
+    );
+
+    const int smelterId = graph::AddRecipeNode(
+        graph,
+        graph::production_ids::Smelter,
+        graph::production_ids::SmeltWashedIronOre,
+        catalogs.machines,
+        catalogs.recipes,
+        catalogs.resources
+    );
+
+    const int wasteSinkId = graph::AddRecipeNode(
+        graph,
+        graph::production_ids::WasteSink,
+        graph::production_ids::StoreIronSlurry,
+        catalogs.machines,
+        catalogs.recipes,
+        catalogs.resources
+    );
+
+    const graph::GraphNode* ironSource = RequireNode(graph, ironSourceId);
+    const graph::GraphNode* waterSource = RequireNode(graph, waterSourceId);
+    const graph::GraphNode* crusher = RequireNode(graph, crusherId);
+    const graph::GraphNode* washer = RequireNode(graph, washerId);
+    const graph::GraphNode* smelter = RequireNode(graph, smelterId);
+    const graph::GraphNode* wasteSink = RequireNode(graph, wasteSinkId);
+
+    if (!Check(ironSource != nullptr, "iron source should exist") ||
+        !Check(waterSource != nullptr, "water source should exist") ||
+        !Check(crusher != nullptr, "crusher should exist") ||
+        !Check(washer != nullptr, "washer should exist") ||
+        !Check(smelter != nullptr, "smelter should exist") ||
+        !Check(wasteSink != nullptr, "waste sink should exist"))
+    {
+        return false;
+    }
+
+    if (!Check(ironSource->name == "Iron Ore Source", "iron source should use recipe-specific source name") ||
+        !Check(waterSource->name == "Water Source", "water source should use recipe-specific source name") ||
+        !Check(crusher->name == "Crusher", "crusher should keep compact machine name") ||
+        !Check(washer->name == "Washer", "washer should keep compact machine name") ||
+        !Check(smelter->name == "Smelter", "smelter should keep compact machine name") ||
+        !Check(wasteSink->name == "Waste Sink", "waste sink should keep compact machine name"))
+    {
+        return false;
+    }
+
+    // Reconfigure mutates the same source node. Check initial names before this
+    // call, then verify the selected source updates to the new source recipe name.
+    const bool reconfigured = graph::ConfigureNodeFromRecipe(
+        graph,
+        ironSourceId,
+        graph::production_ids::ResourceSource,
+        graph::production_ids::SupplyWater,
+        catalogs.machines,
+        catalogs.recipes,
+        catalogs.resources
+    );
+
+    const graph::GraphNode* reconfiguredSource = RequireNode(graph, ironSourceId);
+
+    return
+        Check(reconfigured, "source recipe reconfigure should succeed for naming check") &&
+        Check(reconfiguredSource != nullptr, "reconfigured source should still exist for naming check") &&
+        Check(reconfiguredSource->name == "Water Source", "source reconfigure should update recipe-specific source name");
+}
+
 bool CheckGeneratedPortsPreserveConnectionValidation()
 {
     // Verifies that generated ports participate in the existing connection rules:
@@ -534,6 +643,7 @@ int RunGraphRecipeNodeTest()
         !CheckWasherRecipeNodeWithByproduct() ||
         !CheckInvalidMachineRecipePairIsRejected() ||
         !CheckReconfigureRemovesStaleEdges() ||
+        !CheckSourceRecipeNodeNames() ||
         !CheckGeneratedPortsPreserveConnectionValidation() ||
         !CheckSampleGraphUsesRecipeDrivenTier0Chain())
     {
