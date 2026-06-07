@@ -1,3 +1,8 @@
+// Verifies the legacy dashboard evaluator while the project transitions toward
+// recipe-driven production evaluation. These tests intentionally keep the old
+// throughput/power metrics covered until the production target evaluator fully
+// replaces them.
+
 #include "graph/GraphEvaluator.h"
 
 #include "graph/GraphDocument.h"
@@ -81,39 +86,42 @@ bool ContainsEvent(const graph::SimulationResult& result, const std::string& tex
 
 bool CheckSampleGraphMetrics()
 {
+    // The sample graph is now recipe-driven, but the current dashboard still
+    // consumes legacy evaluator metrics. This test guards that temporary bridge
+    // until the production target evaluator replaces it.
     const graph::GraphDocument graph = graph::CreateSampleFactoryGraph();
     const graph::SimulationResult result = graph::EvaluateGraph(graph);
 
     const graph::GraphNode* washer = FindNodeByName(graph, "Washer");
-    const graph::GraphNode* wasteStorage = FindNodeByName(graph, "Waste Storage");
+    const graph::GraphNode* wasteSink = FindNodeByName(graph, "Waste Sink");
 
     if (!Check(washer != nullptr, "sample graph should contain Washer") ||
-        !Check(wasteStorage != nullptr, "sample graph should contain Waste Storage") ||
+        !Check(wasteSink != nullptr, "sample graph should contain Waste Sink") ||
         !Check(result.nodes.size() == graph.nodes.size(), "node result count should match graph node count") ||
-        !CheckNear(result.totalThroughput, 88.0f, "sample total throughput mismatch") ||
-        !CheckNear(result.totalPowerUse, 540.0f, "sample total power use mismatch") ||
+        !CheckNear(result.totalThroughput, 50.0f, "sample total throughput mismatch") ||
+        !CheckNear(result.totalPowerUse, 280.0f, "sample total power use mismatch") ||
         !CheckNear(result.totalPowerCapacity, 600.0f, "sample power capacity mismatch") ||
-        !CheckNear(result.plantEfficiency, 0.9357143f, "sample plant efficiency mismatch") ||
-        !CheckNear(result.wasteStoragePercent, 23.0f / 25.0f, "sample waste storage percent mismatch") ||
-        !Check(result.warningCount == 3, "sample warning count should include low power reserve") ||
+        !CheckNear(result.plantEfficiency, 1.0f, "sample plant efficiency mismatch") ||
+        !CheckNear(result.wasteStoragePercent, 1.0f, "sample waste sink utilization mismatch") ||
+        !Check(result.warningCount == 0, "recipe-driven sample should not emit legacy warnings") ||
         !Check(result.bottleneckCount == 0, "sample bottleneck count should be zero") ||
-        !Check(ContainsEvent(result, "Low power reserve"), "sample should report low power reserve"))
+        !Check(!ContainsEvent(result, "Low power reserve"), "sample should not report low power reserve"))
     {
         return false;
     }
 
     const graph::NodeEvalResult* washerResult = FindNodeResult(result, washer->id);
-    const graph::NodeEvalResult* wasteResult = FindNodeResult(result, wasteStorage->id);
+    const graph::NodeEvalResult* wasteResult = FindNodeResult(result, wasteSink->id);
 
     return
         Check(washerResult != nullptr, "missing Washer evaluation result") &&
-        Check(washerResult->warning, "Washer warning should propagate") &&
-        Check(washerResult->warningText == "Clogged by high slurry content", "Washer warning text should propagate") &&
-        CheckNear(washerResult->utilization, 108.0f / 120.0f, "Washer utilization mismatch") &&
-        CheckNear(washerResult->outputRate, 108.0f * 0.90f, "Washer output rate mismatch") &&
-        Check(wasteResult != nullptr, "missing Waste Storage evaluation result") &&
-        Check(wasteResult->warning, "Waste Storage warning should propagate") &&
-        CheckNear(wasteResult->utilization, 23.0f / 25.0f, "Waste Storage utilization mismatch");
+        Check(!washerResult->warning, "Washer should not carry legacy warnings") &&
+        Check(washerResult->warningText.empty(), "Washer warning text should be empty") &&
+        CheckNear(washerResult->utilization, 50.0f / 60.0f, "Washer utilization mismatch") &&
+        CheckNear(washerResult->outputRate, 50.0f, "Washer output rate mismatch") &&
+        Check(wasteResult != nullptr, "missing Waste Sink evaluation result") &&
+        Check(!wasteResult->warning, "Waste Sink should not carry legacy warnings") &&
+        CheckNear(wasteResult->utilization, 1.0f, "Waste Sink utilization mismatch");
 }
 
 bool CheckBottleneckDetection()
@@ -184,8 +192,8 @@ bool CheckRemoveNodeEvaluation()
 
     return
         Check(result.nodes.size() == graph.nodes.size(), "result count should match graph after removal") &&
-        Check(graph.edges.size() == 3, "removing Washer should remove its connected edges") &&
-        Check(result.warningCount == 1, "removing Washer should leave only Waste Storage warning") &&
+        Check(graph.edges.size() == 2, "removing Washer should remove its connected recipe-chain edges") &&
+        Check(result.warningCount == 0, "removing Washer should not leave legacy warnings") &&
         Check(result.bottleneckCount == 0, "removing Washer should not create bottlenecks") &&
         Check(FindNodeResult(result, removedNodeId) == nullptr, "removed node should not have an evaluation result");
 }
