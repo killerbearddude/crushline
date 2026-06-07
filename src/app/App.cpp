@@ -1203,6 +1203,8 @@ void App::RebuildAddNodeMenuEntries()
 
 void App::OpenAddNodeMenu(Vec2 canvasPosition)
 {
+    CloseRecipeSelectionMenu();
+
     if (m_addNodeMenuEntries.empty())
     {
         RebuildAddNodeMenuEntries();
@@ -1436,6 +1438,266 @@ void App::DrawAddNodeMenu(Rect graphCanvas)
 }
 
 
+
+void App::RebuildRecipeSelectionMenuEntries(int nodeId)
+{
+    m_recipeSelectionMenuEntries.clear();
+    m_recipeSelectionNodeId = nodeId;
+    m_recipeSelectionSelectedIndex = 0;
+
+    const graph::GraphNode* node = graph::FindNode(m_graph, nodeId);
+    if (node == nullptr || node->machineId == graph::InvalidMachineId)
+    {
+        return;
+    }
+
+    const graph::MachineDef* machine = m_machineCatalog.Find(node->machineId);
+    if (machine == nullptr)
+    {
+        return;
+    }
+
+    std::vector<const graph::RecipeDef*> compatibleRecipes =
+        m_recipeCatalog.FindCompatibleRecipes(machine->machineClass);
+
+    for (const graph::RecipeDef* recipe : compatibleRecipes)
+    {
+        if (recipe == nullptr || recipe->tier != graph::TechTier::Tier0)
+        {
+            continue;
+        }
+
+        const bool current = recipe->id == node->recipeId;
+        if (current)
+        {
+            m_recipeSelectionSelectedIndex = static_cast<int>(m_recipeSelectionMenuEntries.size());
+        }
+
+        m_recipeSelectionMenuEntries.push_back({
+            recipe->displayName,
+            recipe->id,
+            current
+        });
+    }
+}
+
+bool App::OpenRecipeSelectionMenu(int nodeId)
+{
+    CloseAddNodeMenu();
+    RebuildRecipeSelectionMenuEntries(nodeId);
+
+    if (m_recipeSelectionMenuEntries.empty())
+    {
+        m_recipeSelectionNodeId = -1;
+        return false;
+    }
+
+    m_recipeSelectionMenuOpen = true;
+    m_recipeSelectionMenuSuppressInputThisFrame = true;
+    return true;
+}
+
+void App::CloseRecipeSelectionMenu()
+{
+    m_recipeSelectionMenuOpen = false;
+    m_recipeSelectionMenuEntries.clear();
+    m_recipeSelectionNodeId = -1;
+    m_recipeSelectionSelectedIndex = 0;
+    m_recipeSelectionMenuSuppressInputThisFrame = false;
+}
+
+void App::UpdateRecipeSelectionMenuInput(std::vector<std::string>& dashboardEvents)
+{
+    if (!m_recipeSelectionMenuOpen)
+    {
+        return;
+    }
+
+    if (m_recipeSelectionMenuSuppressInputThisFrame)
+    {
+        m_recipeSelectionMenuSuppressInputThisFrame = false;
+        return;
+    }
+
+    graph::GraphNode* node = graph::FindNode(m_graph, m_recipeSelectionNodeId);
+    if (node == nullptr || m_recipeSelectionMenuEntries.empty())
+    {
+        CloseRecipeSelectionMenu();
+        return;
+    }
+
+    m_recipeSelectionSelectedIndex = std::clamp(
+        m_recipeSelectionSelectedIndex,
+        0,
+        static_cast<int>(m_recipeSelectionMenuEntries.size()) - 1
+    );
+
+    if (m_input.keyTabPressed)
+    {
+        const int direction = m_input.keyShiftDown ? -1 : 1;
+        const int count = static_cast<int>(m_recipeSelectionMenuEntries.size());
+        m_recipeSelectionSelectedIndex = (m_recipeSelectionSelectedIndex + direction + count) % count;
+    }
+
+    if (!m_input.keyEnterPressed)
+    {
+        return;
+    }
+
+    const RecipeSelectionMenuEntry& entry =
+        m_recipeSelectionMenuEntries[static_cast<std::size_t>(m_recipeSelectionSelectedIndex)];
+
+    if (entry.recipeId == node->recipeId)
+    {
+        dashboardEvents.push_back("Recipe unchanged: " + entry.label);
+        CloseRecipeSelectionMenu();
+        return;
+    }
+
+    const graph::MachineDef* machine = m_machineCatalog.Find(node->machineId);
+    if (machine == nullptr)
+    {
+        dashboardEvents.push_back("Recipe change failed: missing machine");
+        CloseRecipeSelectionMenu();
+        return;
+    }
+
+    // ConfigureNodeFromRecipe owns the destructive part of recipe switching: it
+    // removes edges touching the node and regenerates ports from the new recipe.
+    // Keeping that behavior centralized prevents the UI from duplicating graph
+    // consistency rules.
+    if (!graph::ConfigureNodeFromRecipe(
+            m_graph,
+            node->id,
+            machine->id,
+            entry.recipeId,
+            m_machineCatalog,
+            m_recipeCatalog,
+            m_resourceCatalog))
+    {
+        dashboardEvents.push_back("Recipe change failed: " + entry.label);
+        CloseRecipeSelectionMenu();
+        return;
+    }
+
+    editor::EnsureNodeVisuals(m_graphView, m_graph);
+    m_graphView.selectedNodeId = m_recipeSelectionNodeId;
+    m_graphView.selectedEdgeId = -1;
+    m_graphView.hoveredEdgeId = -1;
+    m_graphView.draggingNodeId = -1;
+
+    for (auto& [visualNodeId, visual] : m_graphView.nodeVisuals)
+    {
+        visual.selected = visualNodeId == m_recipeSelectionNodeId;
+    }
+
+    MarkGraphDirty();
+    dashboardEvents.push_back("Recipe changed: " + entry.label);
+    CloseRecipeSelectionMenu();
+}
+
+void App::DrawRecipeSelectionMenu(Rect graphCanvas)
+{
+    if (!m_recipeSelectionMenuOpen)
+    {
+        return;
+    }
+
+    const graph::GraphNode* node = graph::FindNode(m_graph, m_recipeSelectionNodeId);
+    if (node == nullptr)
+    {
+        return;
+    }
+
+    const int visibleRows = std::min(static_cast<int>(m_recipeSelectionMenuEntries.size()), 6);
+
+    constexpr float PanelWidth = 330.0f;
+    constexpr float HeaderHeight = 54.0f;
+    constexpr float RowHeight = 23.0f;
+    constexpr float Padding = 10.0f;
+
+    const float panelHeight = HeaderHeight + RowHeight * static_cast<float>(std::max(visibleRows, 1)) + Padding;
+
+    Vec2 anchorScreen = {
+        graphCanvas.x + graphCanvas.w * 0.5f,
+        graphCanvas.y + graphCanvas.h * 0.5f
+    };
+
+    const auto visualIt = m_graphView.nodeVisuals.find(m_recipeSelectionNodeId);
+    if (visualIt != m_graphView.nodeVisuals.end())
+    {
+        const editor::NodeVisual& visual = visualIt->second;
+        anchorScreen = editor::CanvasToScreen(
+            Vec2{visual.position.x + visual.size.x + 14.0f, visual.position.y},
+            m_graphView,
+            graphCanvas
+        );
+    }
+
+    const float minX = graphCanvas.x + 10.0f;
+    const float minY = graphCanvas.y + 10.0f;
+    const float maxX = std::max(minX, graphCanvas.x + graphCanvas.w - PanelWidth - 10.0f);
+    const float maxY = std::max(minY, graphCanvas.y + graphCanvas.h - panelHeight - 10.0f);
+
+    const Rect panel = {
+        std::clamp(anchorScreen.x, minX, maxX),
+        std::clamp(anchorScreen.y, minY, maxY),
+        PanelWidth,
+        panelHeight
+    };
+
+    m_renderer.DrawRect(panel, m_theme.panelAlt);
+    m_renderer.DrawRect(TopSlice(panel, 28.0f), m_theme.panelHeader);
+    m_renderer.DrawRectOutline(panel, m_theme.panelBorder, m_theme.borderThickness);
+
+    m_renderer.DrawText({panel.x + 12.0f, panel.y + 8.0f}, "SELECT RECIPE", m_theme.textSecondary);
+    m_renderer.DrawText({panel.x + 12.0f, panel.y + 34.0f}, node->name, m_theme.textMuted);
+
+    if (m_recipeSelectionMenuEntries.empty())
+    {
+        m_renderer.DrawText(
+            {panel.x + 12.0f, panel.y + HeaderHeight + 4.0f},
+            "No compatible recipes",
+            m_theme.textMuted
+        );
+        return;
+    }
+
+    for (int row = 0; row < visibleRows; ++row)
+    {
+        const bool selected = row == m_recipeSelectionSelectedIndex;
+        const RecipeSelectionMenuEntry& entry =
+            m_recipeSelectionMenuEntries[static_cast<std::size_t>(row)];
+
+        const Rect rowRect = {
+            panel.x + 8.0f,
+            panel.y + HeaderHeight + static_cast<float>(row) * RowHeight,
+            panel.w - 16.0f,
+            RowHeight - 2.0f
+        };
+
+        if (selected)
+        {
+            m_renderer.DrawRect(rowRect, m_theme.panelHeader);
+            m_renderer.DrawRectOutline(rowRect, m_theme.accentCyan, 1.0f);
+        }
+
+        const Color textColor = entry.current
+            ? m_theme.accentGreen
+            : (selected ? m_theme.textPrimary : m_theme.textSecondary);
+
+        std::string label = selected ? "> " : "  ";
+        label += entry.label;
+        if (entry.current)
+        {
+            label += "  CURRENT";
+        }
+
+        m_renderer.DrawText({rowRect.x + 8.0f, rowRect.y + 4.0f}, label, textColor);
+    }
+}
+
+
 bool App::Initialize(const AppConfig& config)
 {
     m_config = config;
@@ -1491,6 +1753,10 @@ void App::RunFrame()
         {
             CloseAddNodeMenu();
         }
+        else if (m_recipeSelectionMenuOpen)
+        {
+            CloseRecipeSelectionMenu();
+        }
         else
         {
             m_shouldClose = true;
@@ -1504,6 +1770,7 @@ void App::RunFrame()
         m_graph = graph::CreateSampleFactoryGraph();
         m_graphView = editor::CreateSampleFactoryGraphView(m_graph);
         CloseAddNodeMenu();
+        CloseRecipeSelectionMenu();
         m_lastSelectedEdgeHintId = -1;
         MarkGraphDirty();
         dashboardEvents.push_back("Sample graph reset: " + GraphSummary(m_graph));
@@ -1531,6 +1798,7 @@ void App::RunFrame()
         if (graph::LoadGraphFromFile(m_graph, m_graphView, CurrentGraphPath, &errorMessage))
         {
             CloseAddNodeMenu();
+            CloseRecipeSelectionMenu();
             m_lastSelectedEdgeHintId = -1;
             MarkGraphDirty();
             dashboardEvents.push_back("Graph loaded: " + GraphSummary(m_graph));
@@ -1552,15 +1820,17 @@ void App::RunFrame()
     editor::EnsureNodeVisuals(m_graphView, m_graph);
     const graph::GraphDocument previousGraph = m_graph;
 
-    bool addNodeMenuConsumedInput = m_addNodeMenuOpen;
+    bool overlayConsumedInput = m_addNodeMenuOpen || m_recipeSelectionMenuOpen;
     const bool mouseInGraphCanvas = PointInsideRect(m_input.mousePosition, regions.graphCanvas);
     const bool openAddNodeFromKeyboard =
         !m_input.keyCtrlDown &&
         !m_addNodeMenuOpen &&
+        !m_recipeSelectionMenuOpen &&
         (m_input.keyAPressed || m_input.keyTabPressed);
 
     const bool openAddNodeFromMouse =
         !m_addNodeMenuOpen &&
+        !m_recipeSelectionMenuOpen &&
         m_input.rightMousePressed &&
         mouseInGraphCanvas;
 
@@ -1575,16 +1845,43 @@ void App::RunFrame()
 
         OpenAddNodeMenu(editor::ScreenToCanvas(anchorScreen, m_graphView, regions.graphCanvas));
         dashboardEvents.push_back("Add Node: search Tier 0 recipes");
-        addNodeMenuConsumedInput = true;
+        overlayConsumedInput = true;
+    }
+
+    const bool openRecipeSelection =
+        !m_input.keyCtrlDown &&
+        !m_addNodeMenuOpen &&
+        !m_recipeSelectionMenuOpen &&
+        m_input.keyRPressed &&
+        m_graphView.selectedNodeId >= 0;
+
+    if (openRecipeSelection)
+    {
+        if (OpenRecipeSelectionMenu(m_graphView.selectedNodeId))
+        {
+            dashboardEvents.push_back("Recipe menu: Tab selects, Enter applies");
+        }
+        else
+        {
+            dashboardEvents.push_back("Recipe menu unavailable");
+        }
+
+        overlayConsumedInput = true;
     }
 
     if (m_addNodeMenuOpen)
     {
         UpdateAddNodeMenuInput(dashboardEvents);
-        addNodeMenuConsumedInput = true;
+        overlayConsumedInput = true;
     }
 
-    if (!addNodeMenuConsumedInput &&
+    if (m_recipeSelectionMenuOpen)
+    {
+        UpdateRecipeSelectionMenuInput(dashboardEvents);
+        overlayConsumedInput = true;
+    }
+
+    if (!overlayConsumedInput &&
         editor::UpdateGraphViewInteraction(m_graphView, m_graph, m_input, regions.graphCanvas))
     {
         MarkGraphDirty();
@@ -1642,6 +1939,7 @@ void App::RunFrame()
 
     editor::DrawGraphView(m_renderer, m_graph, m_graphView, regions.graphCanvas, m_theme);
     DrawAddNodeMenu(regions.graphCanvas);
+    DrawRecipeSelectionMenu(regions.graphCanvas);
 
     const std::size_t drawCommandCount = m_renderer.CommandCount();
     m_renderer.Flush();

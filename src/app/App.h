@@ -53,6 +53,13 @@ private:
         graph::RecipeId recipeId = graph::InvalidRecipeId;
     };
 
+    struct RecipeSelectionMenuEntry
+    {
+        std::string label;
+        graph::RecipeId recipeId = graph::InvalidRecipeId;
+        bool current = false;
+    };
+
     void AddEvent(std::string message);
     void MarkGraphDirty();
     void EvaluateGraphIfDirty();
@@ -81,6 +88,25 @@ private:
     // Draws the Add Node overlay over the graph canvas.
     void DrawAddNodeMenu(Rect graphCanvas);
 
+    // Rebuilds compatible recipe options for one selected recipe-driven node.
+    // Patch 046 intentionally uses existing machine class compatibility only;
+    // tech-tree filtering remains future work.
+    void RebuildRecipeSelectionMenuEntries(int nodeId);
+
+    // Opens recipe selection for the selected node. Returns false when the node
+    // is not recipe-configured or has no compatible catalog recipes.
+    [[nodiscard]] bool OpenRecipeSelectionMenu(int nodeId);
+
+    // Closes the recipe menu without mutating the graph.
+    void CloseRecipeSelectionMenu();
+
+    // Handles keyboard navigation and applies the selected recipe through
+    // GraphDocument::ConfigureNodeFromRecipe.
+    void UpdateRecipeSelectionMenuInput(std::vector<std::string>& dashboardEvents);
+
+    // Draws the recipe selection overlay beside the selected node.
+    void DrawRecipeSelectionMenu(Rect graphCanvas);
+
     AppConfig m_config;
     DashboardLayoutMetrics m_layoutMetrics;
     UiTheme m_theme = MakeIndustrialDarkTheme();
@@ -103,6 +129,15 @@ private:
     // Prevents the key used to open the menu from also being consumed as the
     // first search/navigation input on the same frame.
     bool m_addNodeMenuSuppressInputThisFrame = false;
+
+    std::vector<RecipeSelectionMenuEntry> m_recipeSelectionMenuEntries;
+    int m_recipeSelectionNodeId = -1;
+    int m_recipeSelectionSelectedIndex = 0;
+    bool m_recipeSelectionMenuOpen = false;
+
+    // Prevents the R key that opens recipe selection from immediately affecting
+    // the menu in the same frame.
+    bool m_recipeSelectionMenuSuppressInputThisFrame = false;
 
     // Legacy and production evaluation have separate dirty flags so the new
     // production solver is only recomputed after graph-data mutations. View-only
