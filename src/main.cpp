@@ -17,6 +17,7 @@ int RunGraphConnectionTest();
 int RunProductionCatalogTest();
 int RunGraphRecipeNodeTest();
 int RunScenarioCatalogTest();
+int RunProductionEvaluatorTest();
 
 namespace
 {
@@ -42,6 +43,7 @@ void PrintUsage(const char* executable)
         << "  --production-catalog-test    Verify production resource/machine/recipe catalogs.\n"
         << "  --graph-recipe-node-test     Verify recipe-driven graph node port generation.\n"
         << "  --scenario-catalog-test      Verify scenario objectives and Tier 0 goals.\n"
+        << "  --production-evaluator-test  Verify MVP production target evaluation.\n"
         << "  --frames <count>   Run for a fixed positive number of frames.\n"
         << "  --help, -h         Show this help text.\n";
 }
@@ -96,6 +98,11 @@ int main(int argc, char** argv)
         if (arg == "--scenario-catalog-test")
         {
             return RunScenarioCatalogTest();
+        }
+
+        if (arg == "--production-evaluator-test")
+        {
+            return RunProductionEvaluatorTest();
         }
 
         if (arg == "--frames")
