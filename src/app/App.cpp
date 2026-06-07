@@ -396,17 +396,17 @@ void DrawMetricRow(
     // Approximate right alignment keeps compact values from colliding with
     // labels in narrow side panels until real text measurement lands.
     const float estimatedValueWidth = std::clamp(
-        static_cast<float>(metric.valueText.size()) * 7.0f,
-        28.0f,
-        76.0f
+        static_cast<float>(metric.valueText.size()) * 6.0f,
+        24.0f,
+        68.0f
     );
     renderer.DrawText({row.x + row.w - 10.0f - estimatedValueWidth, row.y + 5.0f}, metric.valueText, theme.textMuted);
 
     const Rect bar = {
         row.x + 24.0f,
-        row.y + row.h - 11.0f,
+        row.y + row.h - 10.0f,
         row.w - 36.0f,
-        5.0f
+        4.0f
     };
 
     DrawProgressBar(renderer, bar, theme, metric.ratio, metric.accent);
@@ -425,8 +425,8 @@ void DrawDashboardMetrics(
 )
 {
     const Rect content = InsetRect(panel, theme.panelPadding);
-    const float rowHeight = 28.0f;
-    const float startY = panel.y + 44.0f;
+    const float rowHeight = 25.0f;
+    const float startY = panel.y + 42.0f;
 
     const graph::ObjectiveStatus* ingotObjective = FindObjectiveStatus(
         production,
@@ -473,7 +473,7 @@ void DrawDashboardMetrics(
 
     for (int i = 0; i < 8; ++i)
     {
-        const float y = startY + static_cast<float>(i) * (rowHeight + 6.0f);
+        const float y = startY + static_cast<float>(i) * (rowHeight + 5.0f);
         const Rect row = {content.x, y, content.w, rowHeight};
         DrawMetricRow(renderer, row, theme, metrics[static_cast<std::size_t>(i)], i);
     }
@@ -481,9 +481,9 @@ void DrawDashboardMetrics(
 
 void DrawStatusChips(Renderer2D& renderer, Rect topBar, const UiTheme& theme, const graph::ProductionEvaluation& production)
 {
-    const float chipY = topBar.y + 14.0f;
-    const float chipH = 28.0f;
-    const float chipW = 132.0f;
+    const float chipY = topBar.y + 16.0f;
+    const float chipH = 24.0f;
+    const float chipW = 124.0f;
     float x = topBar.x + 250.0f;
 
     const float targetRatio = Clamp01(production.targetSatisfactionRatio);
@@ -528,9 +528,9 @@ void DrawStatusChips(Renderer2D& renderer, Rect topBar, const UiTheme& theme, co
         const Rect chip = {x, chipY, chipW, chipH};
         renderer.DrawRect(chip, theme.panel);
         renderer.DrawRectOutline(chip, theme.panelBorder, 1.0f);
-        renderer.DrawRect({chip.x + 10.0f, chip.y + 8.0f, 4.0f, 12.0f}, accents[i]);
-        renderer.DrawText({chip.x + 24.0f, chip.y + 5.0f}, labels[i], theme.textSecondary);
-        DrawProgressBar(renderer, {chip.x + 24.0f, chip.y + 19.0f, chip.w - 38.0f, 4.0f}, theme, values[i], accents[i]);
+        renderer.DrawRect({chip.x + 10.0f, chip.y + 7.0f, 4.0f, 10.0f}, accents[i]);
+        renderer.DrawText({chip.x + 24.0f, chip.y + 3.0f}, labels[i], theme.textSecondary);
+        DrawProgressBar(renderer, {chip.x + 24.0f, chip.y + 17.0f, chip.w - 38.0f, 3.0f}, theme, values[i], accents[i]);
         x += chipW + 10.0f;
     }
 }
@@ -847,7 +847,7 @@ Color EventAccentColor(const UiTheme& theme, const std::string& message)
 
 float EstimateEventWidth(const std::string& message)
 {
-    return std::clamp(34.0f + static_cast<float>(message.size()) * 7.0f, 112.0f, 260.0f);
+    return std::clamp(30.0f + static_cast<float>(message.size()) * 6.0f, 96.0f, 220.0f);
 }
 
 std::string CompactProductionEvent(std::string_view message)
@@ -942,7 +942,7 @@ void DrawEventLogMessages(
 {
     if (events.empty())
     {
-        renderer.DrawText({eventLog.x + 118.0f, eventLog.y + 8.0f}, "NO EVENTS", theme.textMuted);
+        renderer.DrawText({eventLog.x + 104.0f, eventLog.y + 7.0f}, "NO EVENTS", theme.textMuted);
         return;
     }
 
@@ -969,7 +969,7 @@ void DrawEventLogMessages(
         renderer.DrawRect(pill, i == 0 ? theme.panelAlt : theme.panel);
         renderer.DrawRectOutline(pill, theme.panelBorder, 1.0f);
         renderer.DrawRect({pill.x + 7.0f, pill.y + 5.0f, 4.0f, pill.h - 10.0f}, accent);
-        renderer.DrawText({pill.x + 18.0f, pill.y + 3.0f}, message, i == 0 ? theme.textPrimary : theme.textSecondary);
+        renderer.DrawText({pill.x + 16.0f, pill.y + 4.0f}, message, i == 0 ? theme.textPrimary : theme.textSecondary);
 
         x += w + gap;
     }

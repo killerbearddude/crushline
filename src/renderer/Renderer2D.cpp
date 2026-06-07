@@ -200,6 +200,10 @@ float Length(Vec2 v)
     return std::sqrt(v.x * v.x + v.y * v.y);
 }
 
+// UI text is loaded slightly smaller than the original atlas size so the
+// dense dashboard panels remain legible without labels colliding with values.
+constexpr int UiFontPixelSize = 13;
+
 std::string FindFontPath()
 {
     const char* candidates[] = {
@@ -349,7 +353,7 @@ bool Renderer2D::BuildPipeline()
     }
 
     const std::string fontPath = FindFontPath();
-    if (!fontPath.empty() && m_fontAtlas.LoadFromFile(fontPath, 15))
+    if (!fontPath.empty() && m_fontAtlas.LoadFromFile(fontPath, UiFontPixelSize))
     {
         if (!m_fontTexture.CreateAlpha(m_fontAtlas.Width(), m_fontAtlas.Height(), m_fontAtlas.Pixels().data()))
         {
