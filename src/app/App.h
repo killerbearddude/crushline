@@ -83,7 +83,7 @@ private:
 
     // Handles text filtering, keyboard selection, and recipe-node creation while
     // the Add Node menu owns input for the frame.
-    void UpdateAddNodeMenuInput(std::vector<std::string>& dashboardEvents);
+    void UpdateAddNodeMenuInput(std::vector<std::string>& dashboardEvents, Rect graphCanvas);
 
     // Draws the Add Node overlay over the graph canvas.
     void DrawAddNodeMenu(Rect graphCanvas);
@@ -102,7 +102,7 @@ private:
 
     // Handles keyboard navigation and applies the selected recipe through
     // GraphDocument::ConfigureNodeFromRecipe.
-    void UpdateRecipeSelectionMenuInput(std::vector<std::string>& dashboardEvents);
+    void UpdateRecipeSelectionMenuInput(std::vector<std::string>& dashboardEvents, Rect graphCanvas);
 
     // Draws the recipe selection overlay beside the selected node.
     void DrawRecipeSelectionMenu(Rect graphCanvas);

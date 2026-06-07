@@ -24,6 +24,14 @@ namespace
 {
 constexpr const char* CurrentGraphPath = "data/current_graph.json";
 
+constexpr float OverlayPanelPadding = 10.0f;
+constexpr float OverlayRowHeight = 23.0f;
+constexpr float AddNodePanelWidth = 360.0f;
+constexpr float AddNodeHeaderHeight = 58.0f;
+constexpr float RecipeSelectionPanelWidth = 330.0f;
+constexpr float RecipeSelectionHeaderHeight = 54.0f;
+constexpr int OverlayMaxVisibleRows = 6;
+
 std::string GraphSummary(std::size_t nodeCount, std::size_t edgeCount)
 {
     return std::to_string(nodeCount) + " nodes / " + std::to_string(edgeCount) + " links";
@@ -54,6 +62,65 @@ bool PointInsideRect(Vec2 point, Rect rect)
         point.y >= rect.y &&
         point.x <= rect.x + rect.w &&
         point.y <= rect.y + rect.h;
+}
+
+Rect ClampOverlayPanelToCanvas(Vec2 anchor, Rect graphCanvas, float width, float height)
+{
+    const float minX = graphCanvas.x + OverlayPanelPadding;
+    const float minY = graphCanvas.y + OverlayPanelPadding;
+    const float maxX = std::max(minX, graphCanvas.x + graphCanvas.w - width - OverlayPanelPadding);
+    const float maxY = std::max(minY, graphCanvas.y + graphCanvas.h - height - OverlayPanelPadding);
+
+    return {
+        std::clamp(anchor.x, minX, maxX),
+        std::clamp(anchor.y, minY, maxY),
+        width,
+        height
+    };
+}
+
+Rect AddNodeMenuPanelRect(
+    Vec2 canvasPosition,
+    const editor::GraphViewState& view,
+    Rect graphCanvas,
+    int visibleRows
+)
+{
+    const float panelHeight =
+        AddNodeHeaderHeight +
+        OverlayRowHeight * static_cast<float>(std::max(visibleRows, 1)) +
+        OverlayPanelPadding;
+
+    return ClampOverlayPanelToCanvas(
+        editor::CanvasToScreen(canvasPosition, view, graphCanvas),
+        graphCanvas,
+        AddNodePanelWidth,
+        panelHeight
+    );
+}
+
+Rect RecipeSelectionMenuPanelRect(
+    Vec2 anchorScreen,
+    Rect graphCanvas,
+    int visibleRows
+)
+{
+    const float panelHeight =
+        RecipeSelectionHeaderHeight +
+        OverlayRowHeight * static_cast<float>(std::max(visibleRows, 1)) +
+        OverlayPanelPadding;
+
+    return ClampOverlayPanelToCanvas(anchorScreen, graphCanvas, RecipeSelectionPanelWidth, panelHeight);
+}
+
+Rect OverlayRowRect(Rect panel, float headerHeight, int row)
+{
+    return {
+        panel.x + 8.0f,
+        panel.y + headerHeight + static_cast<float>(row) * OverlayRowHeight,
+        panel.w - 16.0f,
+        OverlayRowHeight - 2.0f
+    };
 }
 
 std::string AddNodeEntryDisplayName(const graph::MachineDef& machine, const graph::RecipeDef& recipe)
@@ -1250,7 +1317,7 @@ std::vector<std::size_t> App::FilteredAddNodeEntryIndices() const
     return filtered;
 }
 
-void App::UpdateAddNodeMenuInput(std::vector<std::string>& dashboardEvents)
+void App::UpdateAddNodeMenuInput(std::vector<std::string>& dashboardEvents, Rect graphCanvas)
 {
     if (!m_addNodeMenuOpen)
     {
@@ -1302,6 +1369,34 @@ void App::UpdateAddNodeMenuInput(std::vector<std::string>& dashboardEvents)
         return;
     }
 
+    const int visibleRows = std::min(static_cast<int>(filtered.size()), OverlayMaxVisibleRows);
+    const Rect panel = AddNodeMenuPanelRect(
+        m_addNodeMenuCanvasPosition,
+        m_graphView,
+        graphCanvas,
+        visibleRows
+    );
+
+    int clickedRow = -1;
+    if (m_input.leftMousePressed)
+    {
+        for (int row = 0; row < visibleRows; ++row)
+        {
+            if (PointInsideRect(m_input.mousePosition, OverlayRowRect(panel, AddNodeHeaderHeight, row)))
+            {
+                clickedRow = row;
+                m_addNodeSelectedIndex = row;
+                break;
+            }
+        }
+
+        if (clickedRow < 0 && !PointInsideRect(m_input.mousePosition, panel))
+        {
+            CloseAddNodeMenu();
+            return;
+        }
+    }
+
     m_addNodeSelectedIndex = std::clamp(
         m_addNodeSelectedIndex,
         0,
@@ -1315,7 +1410,7 @@ void App::UpdateAddNodeMenuInput(std::vector<std::string>& dashboardEvents)
         m_addNodeSelectedIndex = (m_addNodeSelectedIndex + direction + count) % count;
     }
 
-    if (!m_input.keyEnterPressed)
+    if (!m_input.keyEnterPressed && clickedRow < 0)
     {
         return;
     }
@@ -1368,27 +1463,8 @@ void App::DrawAddNodeMenu(Rect graphCanvas)
     }
 
     const std::vector<std::size_t> filtered = FilteredAddNodeEntryIndices();
-    const int visibleRows = std::min(static_cast<int>(filtered.size()), 6);
-
-    constexpr float PanelWidth = 360.0f;
-    constexpr float HeaderHeight = 58.0f;
-    constexpr float RowHeight = 23.0f;
-    constexpr float Padding = 10.0f;
-
-    const float panelHeight = HeaderHeight + RowHeight * static_cast<float>(std::max(visibleRows, 1)) + Padding;
-    const Vec2 anchor = editor::CanvasToScreen(m_addNodeMenuCanvasPosition, m_graphView, graphCanvas);
-
-    const float minX = graphCanvas.x + 10.0f;
-    const float minY = graphCanvas.y + 10.0f;
-    const float maxX = std::max(minX, graphCanvas.x + graphCanvas.w - PanelWidth - 10.0f);
-    const float maxY = std::max(minY, graphCanvas.y + graphCanvas.h - panelHeight - 10.0f);
-
-    const Rect panel = {
-        std::clamp(anchor.x, minX, maxX),
-        std::clamp(anchor.y, minY, maxY),
-        PanelWidth,
-        panelHeight
-    };
+    const int visibleRows = std::min(static_cast<int>(filtered.size()), OverlayMaxVisibleRows);
+    const Rect panel = AddNodeMenuPanelRect(m_addNodeMenuCanvasPosition, m_graphView, graphCanvas, visibleRows);
 
     m_renderer.DrawRect(panel, m_theme.panelAlt);
     m_renderer.DrawRect(TopSlice(panel, 28.0f), m_theme.panelHeader);
@@ -1405,7 +1481,7 @@ void App::DrawAddNodeMenu(Rect graphCanvas)
     if (filtered.empty())
     {
         m_renderer.DrawText(
-            {panel.x + 12.0f, panel.y + HeaderHeight + 4.0f},
+            {panel.x + 12.0f, panel.y + AddNodeHeaderHeight + 4.0f},
             "No matching recipe nodes",
             m_theme.textMuted
         );
@@ -1415,12 +1491,7 @@ void App::DrawAddNodeMenu(Rect graphCanvas)
     for (int row = 0; row < visibleRows; ++row)
     {
         const bool selected = row == m_addNodeSelectedIndex;
-        const Rect rowRect = {
-            panel.x + 8.0f,
-            panel.y + HeaderHeight + static_cast<float>(row) * RowHeight,
-            panel.w - 16.0f,
-            RowHeight - 2.0f
-        };
+        const Rect rowRect = OverlayRowRect(panel, AddNodeHeaderHeight, row);
 
         if (selected)
         {
@@ -1506,7 +1577,7 @@ void App::CloseRecipeSelectionMenu()
     m_recipeSelectionMenuSuppressInputThisFrame = false;
 }
 
-void App::UpdateRecipeSelectionMenuInput(std::vector<std::string>& dashboardEvents)
+void App::UpdateRecipeSelectionMenuInput(std::vector<std::string>& dashboardEvents, Rect graphCanvas)
 {
     if (!m_recipeSelectionMenuOpen)
     {
@@ -1526,6 +1597,47 @@ void App::UpdateRecipeSelectionMenuInput(std::vector<std::string>& dashboardEven
         return;
     }
 
+    const int visibleRows = std::min(
+        static_cast<int>(m_recipeSelectionMenuEntries.size()),
+        OverlayMaxVisibleRows
+    );
+    Vec2 anchorScreen = {
+        graphCanvas.x + graphCanvas.w * 0.5f,
+        graphCanvas.y + graphCanvas.h * 0.5f
+    };
+
+    const auto visualIt = m_graphView.nodeVisuals.find(m_recipeSelectionNodeId);
+    if (visualIt != m_graphView.nodeVisuals.end())
+    {
+        const editor::NodeVisual& visual = visualIt->second;
+        anchorScreen = editor::CanvasToScreen(
+            Vec2{visual.position.x + visual.size.x + 14.0f, visual.position.y},
+            m_graphView,
+            graphCanvas
+        );
+    }
+
+    const Rect panel = RecipeSelectionMenuPanelRect(anchorScreen, graphCanvas, visibleRows);
+    int clickedRow = -1;
+    if (m_input.leftMousePressed)
+    {
+        for (int row = 0; row < visibleRows; ++row)
+        {
+            if (PointInsideRect(m_input.mousePosition, OverlayRowRect(panel, RecipeSelectionHeaderHeight, row)))
+            {
+                clickedRow = row;
+                m_recipeSelectionSelectedIndex = row;
+                break;
+            }
+        }
+
+        if (clickedRow < 0 && !PointInsideRect(m_input.mousePosition, panel))
+        {
+            CloseRecipeSelectionMenu();
+            return;
+        }
+    }
+
     m_recipeSelectionSelectedIndex = std::clamp(
         m_recipeSelectionSelectedIndex,
         0,
@@ -1539,7 +1651,7 @@ void App::UpdateRecipeSelectionMenuInput(std::vector<std::string>& dashboardEven
         m_recipeSelectionSelectedIndex = (m_recipeSelectionSelectedIndex + direction + count) % count;
     }
 
-    if (!m_input.keyEnterPressed)
+    if (!m_input.keyEnterPressed && clickedRow < 0)
     {
         return;
     }
@@ -1609,14 +1721,7 @@ void App::DrawRecipeSelectionMenu(Rect graphCanvas)
         return;
     }
 
-    const int visibleRows = std::min(static_cast<int>(m_recipeSelectionMenuEntries.size()), 6);
-
-    constexpr float PanelWidth = 330.0f;
-    constexpr float HeaderHeight = 54.0f;
-    constexpr float RowHeight = 23.0f;
-    constexpr float Padding = 10.0f;
-
-    const float panelHeight = HeaderHeight + RowHeight * static_cast<float>(std::max(visibleRows, 1)) + Padding;
+    const int visibleRows = std::min(static_cast<int>(m_recipeSelectionMenuEntries.size()), OverlayMaxVisibleRows);
 
     Vec2 anchorScreen = {
         graphCanvas.x + graphCanvas.w * 0.5f,
@@ -1634,17 +1739,7 @@ void App::DrawRecipeSelectionMenu(Rect graphCanvas)
         );
     }
 
-    const float minX = graphCanvas.x + 10.0f;
-    const float minY = graphCanvas.y + 10.0f;
-    const float maxX = std::max(minX, graphCanvas.x + graphCanvas.w - PanelWidth - 10.0f);
-    const float maxY = std::max(minY, graphCanvas.y + graphCanvas.h - panelHeight - 10.0f);
-
-    const Rect panel = {
-        std::clamp(anchorScreen.x, minX, maxX),
-        std::clamp(anchorScreen.y, minY, maxY),
-        PanelWidth,
-        panelHeight
-    };
+    const Rect panel = RecipeSelectionMenuPanelRect(anchorScreen, graphCanvas, visibleRows);
 
     m_renderer.DrawRect(panel, m_theme.panelAlt);
     m_renderer.DrawRect(TopSlice(panel, 28.0f), m_theme.panelHeader);
@@ -1656,7 +1751,7 @@ void App::DrawRecipeSelectionMenu(Rect graphCanvas)
     if (m_recipeSelectionMenuEntries.empty())
     {
         m_renderer.DrawText(
-            {panel.x + 12.0f, panel.y + HeaderHeight + 4.0f},
+            {panel.x + 12.0f, panel.y + RecipeSelectionHeaderHeight + 4.0f},
             "No compatible recipes",
             m_theme.textMuted
         );
@@ -1669,12 +1764,7 @@ void App::DrawRecipeSelectionMenu(Rect graphCanvas)
         const RecipeSelectionMenuEntry& entry =
             m_recipeSelectionMenuEntries[static_cast<std::size_t>(row)];
 
-        const Rect rowRect = {
-            panel.x + 8.0f,
-            panel.y + HeaderHeight + static_cast<float>(row) * RowHeight,
-            panel.w - 16.0f,
-            RowHeight - 2.0f
-        };
+        const Rect rowRect = OverlayRowRect(panel, RecipeSelectionHeaderHeight, row);
 
         if (selected)
         {
@@ -1871,13 +1961,13 @@ void App::RunFrame()
 
     if (m_addNodeMenuOpen)
     {
-        UpdateAddNodeMenuInput(dashboardEvents);
+        UpdateAddNodeMenuInput(dashboardEvents, regions.graphCanvas);
         overlayConsumedInput = true;
     }
 
     if (m_recipeSelectionMenuOpen)
     {
-        UpdateRecipeSelectionMenuInput(dashboardEvents);
+        UpdateRecipeSelectionMenuInput(dashboardEvents, regions.graphCanvas);
         overlayConsumedInput = true;
     }
 
