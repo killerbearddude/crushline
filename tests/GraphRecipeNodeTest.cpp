@@ -3,6 +3,7 @@
 // lose production ResourceId data or invalid machine/recipe pairings mutate the
 // graph before the production evaluator starts depending on this model.
 
+#include "editor/GraphView.h"
 #include "graph/GraphDocument.h"
 #include "graph/SampleGraph.h"
 
@@ -482,6 +483,69 @@ bool CheckSourceRecipeNodeNames()
         Check(reconfiguredSource->name == "Water Source", "source reconfigure should update recipe-specific source name");
 }
 
+bool CheckAddRecipeNodeFromEmptyGraph()
+{
+    // Regression coverage for the clear-graph/Add Node workflow: after the
+    // document is empty, the first catalog-backed recipe node should allocate
+    // the first node/port IDs, keep source-specific naming, and receive a view
+    // visual through the same graph-view helper the app uses after creation.
+    const CatalogSet catalogs;
+    graph::GraphDocument graph;
+    editor::GraphViewState view;
+
+    if (!Check(graph.nodes.empty(), "fresh graph should start with no nodes") ||
+        !Check(graph.edges.empty(), "fresh graph should start with no edges") ||
+        !Check(graph.nextNodeId == 1, "fresh graph should start node ids at one") ||
+        !Check(graph.nextPortId == 1, "fresh graph should start port ids at one"))
+    {
+        return false;
+    }
+
+    const int nodeId = graph::AddRecipeNode(
+        graph,
+        graph::production_ids::ResourceSource,
+        graph::production_ids::ExtractIronOre,
+        catalogs.machines,
+        catalogs.recipes,
+        catalogs.resources
+    );
+
+    const graph::GraphNode* node = RequireNode(graph, nodeId);
+    if (!Check(nodeId == 1, "first recipe node in an empty graph should use node id one") ||
+        !Check(node != nullptr, "first recipe node should be findable after empty graph add"))
+    {
+        return false;
+    }
+
+    const graph::GraphPort* ironOutput = FindOutputByProductionResource(*node, graph::production_ids::IronOre);
+
+    editor::EnsureNodeVisuals(view, graph);
+    const auto visualIt = view.nodeVisuals.find(nodeId);
+
+    return
+        Check(graph.nodes.size() == 1, "empty graph add should create exactly one node") &&
+        Check(graph.edges.empty(), "empty graph add should not create edges") &&
+        Check(graph.nextNodeId == 2, "empty graph add should advance next node id") &&
+        Check(graph.nextPortId == 2, "empty graph source add should allocate one output port") &&
+        Check(node->name == "Iron Ore Source", "empty graph source add should use source recipe name") &&
+        Check(node->type == graph::NodeType::Source, "empty graph source add should create source node type") &&
+        Check(node->machineId == graph::production_ids::ResourceSource, "empty graph source machine id mismatch") &&
+        Check(node->recipeId == graph::production_ids::ExtractIronOre, "empty graph source recipe id mismatch") &&
+        Check(node->inputs.empty(), "empty graph source should have no generated inputs") &&
+        Check(node->outputs.size() == 1, "empty graph source should have one generated output") &&
+        CheckGeneratedPort(
+            ironOutput,
+            graph::PortDirection::Output,
+            graph::production_ids::IronOre,
+            graph::ResourceType::IronOre,
+            false,
+            "empty graph source iron output should exist"
+        ) &&
+        Check(visualIt != view.nodeVisuals.end(), "empty graph first recipe node should get a visual") &&
+        Check(view.nodeVisuals.size() == 1, "empty graph first recipe node should be the only visual") &&
+        Check(view.selectedNodeId == -1, "empty graph visual sync should not select the first node implicitly");
+}
+
 bool CheckGeneratedPortsPreserveConnectionValidation()
 {
     // Verifies that generated ports participate in the existing connection rules:
@@ -644,6 +708,7 @@ int RunGraphRecipeNodeTest()
         !CheckInvalidMachineRecipePairIsRejected() ||
         !CheckReconfigureRemovesStaleEdges() ||
         !CheckSourceRecipeNodeNames() ||
+        !CheckAddRecipeNodeFromEmptyGraph() ||
         !CheckGeneratedPortsPreserveConnectionValidation() ||
         !CheckSampleGraphUsesRecipeDrivenTier0Chain())
     {
