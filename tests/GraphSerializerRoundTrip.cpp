@@ -223,6 +223,62 @@ bool SaveAndLoadOnce(
     return true;
 }
 
+bool RunEmptyGraphPersistenceCase()
+{
+    // Regression coverage for the clear-graph workflow: an empty graph should
+    // save and reload without inventing nodes, links, visuals, or stale editor
+    // selection/drag state.
+    graph::GraphDocument graph;
+    editor::GraphViewState view;
+
+    view.cameraOffset = {88.0f, -64.0f};
+    view.zoom = 0.75f;
+
+    // These IDs are intentionally invalid for an empty graph. Load should keep
+    // persisted camera state but clear graph-dependent editor state.
+    view.selectedNodeId = 99;
+    view.selectedEdgeId = 77;
+    view.hoveredNodeId = 4;
+    view.draggingNodeId = 5;
+    view.hoveredEdgeId = 6;
+    view.hoveredPortNodeId = 7;
+    view.hoveredPortId = 8;
+    view.draggingWire = true;
+    view.wireStartNodeId = 9;
+    view.wireStartPortId = 10;
+    view.lastWireDropFailure = editor::WireDropFailureReason::ResourceMismatch;
+    view.panningCanvas = true;
+    view.wirePreviewCanvasPosition = {12.0f, 34.0f};
+    view.dragStartCanvasPosition = {56.0f, 78.0f};
+    view.dragStartNodePosition = {90.0f, 12.0f};
+    view.panStartMousePosition = {34.0f, 56.0f};
+    view.panStartCameraOffset = {78.0f, 90.0f};
+
+    LoadedGraphState loadedState;
+    if (!SaveAndLoadOnce(graph, view, loadedState))
+    {
+        return false;
+    }
+
+    return
+        CheckGraph(loadedState.graph, graph) &&
+        CheckVec2(loadedState.view.cameraOffset, view.cameraOffset, "empty graph camera offset should persist") &&
+        Check(NearlyEqual(loadedState.view.zoom, view.zoom), "empty graph zoom should persist") &&
+        Check(loadedState.view.nodeVisuals.empty(), "empty graph should not load node visuals") &&
+        Check(loadedState.view.selectedNodeId == -1, "empty graph should clear invalid selected node") &&
+        Check(loadedState.view.selectedEdgeId == -1, "empty graph should clear invalid selected edge") &&
+        Check(loadedState.view.hoveredNodeId == -1, "empty graph should clear hovered node") &&
+        Check(loadedState.view.draggingNodeId == -1, "empty graph should clear dragging node") &&
+        Check(loadedState.view.hoveredEdgeId == -1, "empty graph should clear hovered edge") &&
+        Check(loadedState.view.hoveredPortNodeId == -1, "empty graph should clear hovered port node") &&
+        Check(loadedState.view.hoveredPortId == -1, "empty graph should clear hovered port") &&
+        Check(!loadedState.view.draggingWire, "empty graph should clear dragging wire") &&
+        Check(loadedState.view.wireStartNodeId == -1, "empty graph should clear wire start node") &&
+        Check(loadedState.view.wireStartPortId == -1, "empty graph should clear wire start port") &&
+        Check(loadedState.view.lastWireDropFailure == editor::WireDropFailureReason::None, "empty graph should clear wire drop failure") &&
+        Check(!loadedState.view.panningCanvas, "empty graph should clear panning state");
+}
+
 bool RunPrimaryRoundTripCase()
 {
     graph::GraphDocument graph = graph::CreateSampleFactoryGraph();
@@ -381,7 +437,8 @@ bool RunRecipeConfiguredNodePersistenceCase()
 
 int RunGraphSerializerRoundTripTest()
 {
-    if (!RunPrimaryRoundTripCase() ||
+    if (!RunEmptyGraphPersistenceCase() ||
+        !RunPrimaryRoundTripCase() ||
         !RunGraphViewCameraPersistenceCase() ||
         !RunRecipeConfiguredNodePersistenceCase())
     {
