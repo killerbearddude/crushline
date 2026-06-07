@@ -95,6 +95,15 @@ void Window::PollEvents(InputState& input)
                 input.mouseWheelDelta += event.wheel.y;
                 break;
 
+            case SDL_EVENT_TEXT_INPUT:
+                // SDL sends committed UTF-8 text only while text input is
+                // enabled. App decides whether any active widget should consume it.
+                if (event.text.text != nullptr)
+                {
+                    input.textInput += event.text.text;
+                }
+                break;
+
             default:
                 break;
         }
@@ -128,17 +137,25 @@ void Window::PollEvents(InputState& input)
 
     const bool* keyboard = SDL_GetKeyboardState(nullptr);
 
+    const bool aDown = keyboard[SDL_SCANCODE_A];
+    const bool backspaceDown = keyboard[SDL_SCANCODE_BACKSPACE];
     const bool deleteDown = keyboard[SDL_SCANCODE_DELETE];
+    const bool enterDown = keyboard[SDL_SCANCODE_RETURN] || keyboard[SDL_SCANCODE_KP_ENTER];
     const bool escapeDown = keyboard[SDL_SCANCODE_ESCAPE];
     const bool lDown = keyboard[SDL_SCANCODE_L];
     const bool rDown = keyboard[SDL_SCANCODE_R];
     const bool sDown = keyboard[SDL_SCANCODE_S];
+    const bool tabDown = keyboard[SDL_SCANCODE_TAB];
 
+    input.keyAPressed = aDown && !m_previousADown;
+    input.keyBackspacePressed = backspaceDown && !m_previousBackspaceDown;
     input.keyDeletePressed = deleteDown && !m_previousDeleteDown;
+    input.keyEnterPressed = enterDown && !m_previousEnterDown;
     input.keyEscapePressed = escapeDown && !m_previousEscapeDown;
     input.keyLPressed = lDown && !m_previousLDown;
     input.keyRPressed = rDown && !m_previousRDown;
     input.keySPressed = sDown && !m_previousSDown;
+    input.keyTabPressed = tabDown && !m_previousTabDown;
 
     input.keyCtrlDown =
         keyboard[SDL_SCANCODE_LCTRL] ||
@@ -152,11 +169,42 @@ void Window::PollEvents(InputState& input)
     m_previousMiddleMouseDown = middleDown;
     m_previousRightMouseDown = rightDown;
 
+    m_previousADown = aDown;
+    m_previousBackspaceDown = backspaceDown;
     m_previousDeleteDown = deleteDown;
+    m_previousEnterDown = enterDown;
     m_previousEscapeDown = escapeDown;
     m_previousLDown = lDown;
     m_previousRDown = rDown;
     m_previousSDown = sDown;
+    m_previousTabDown = tabDown;
+}
+
+void Window::SetTextInputEnabled(bool enabled)
+{
+    if (m_window == nullptr || m_textInputEnabled == enabled)
+    {
+        return;
+    }
+
+    if (enabled)
+    {
+        if (!SDL_StartTextInput(m_window))
+        {
+            std::cerr << "Warning: SDL_StartTextInput failed: " << SDL_GetError() << "\n";
+            return;
+        }
+
+        m_textInputEnabled = true;
+        return;
+    }
+
+    if (!SDL_StopTextInput(m_window))
+    {
+        std::cerr << "Warning: SDL_StopTextInput failed: " << SDL_GetError() << "\n";
+    }
+
+    m_textInputEnabled = false;
 }
 
 void Window::SwapBuffers()
@@ -166,6 +214,12 @@ void Window::SwapBuffers()
 
 void Window::Shutdown()
 {
+    if (m_window != nullptr && m_textInputEnabled)
+    {
+        SDL_StopTextInput(m_window);
+        m_textInputEnabled = false;
+    }
+
     if (m_glContext != nullptr)
     {
         SDL_GL_DestroyContext(m_glContext);
