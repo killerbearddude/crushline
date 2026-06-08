@@ -2110,6 +2110,7 @@ void App::RunFrame()
     DrawEventLogMessages(m_renderer, regions.eventLog, m_theme, m_eventLog);
 
     DrawStatusChips(m_renderer, regions.topBar, m_theme, m_productionEvaluation);
+    m_renderer.DrawText({regions.topBar.x + 920.0f, regions.topBar.y + 13.0f}, "A Add Node  |  Ctrl+Backspace New Graph", m_theme.textMuted);
     DrawDashboardMetrics(m_renderer, regions.leftPanel, m_theme, m_graph, m_productionEvaluation, true);
     DrawDashboardMetrics(m_renderer, regions.rightPanel, m_theme, m_graph, m_productionEvaluation, false);
     DrawSelectedNodeInspector(m_renderer, regions.inspector, m_theme, m_graph, m_graphView, m_simulationResult);
