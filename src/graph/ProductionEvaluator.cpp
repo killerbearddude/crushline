@@ -367,8 +367,8 @@ production::ProductionGraphMetadata BuildProductionGraphMetadata(
 {
     production::ProductionGraphMetadata metadata;
 
-    const auto recipeRateForResource = [](const std::vector<ResourceRate>& rates, ResourceId resourceId) {
-        for (const ResourceRate& rate : rates)
+    const auto recipeRateForResource = [](const std::vector<ResourceAmount>& rates, ResourceId resourceId) {
+        for (const ResourceAmount& rate : rates)
         {
             if (rate.resourceId == resourceId)
             {
