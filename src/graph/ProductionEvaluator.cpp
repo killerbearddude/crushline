@@ -1,7 +1,8 @@
 // Implements the MVP production evaluator described in docs/game-design.md. The
 // evaluator is intentionally small and deterministic: it rejects cycles, enforces
 // one edge per port, propagates rates in topological order, and evaluates typed
-// scenario objectives.
+// scenario objectives. Crushline production meaning is supplied through
+// ProductionGraphMetadata while GraphDocument remains the topology source.
 
 #include "graph/ProductionEvaluator.h"
 
@@ -10,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <optional>
 #include <queue>
 #include <sstream>
 #include <utility>
@@ -355,6 +357,201 @@ float IncomingAvailableRate(
 
     return OutputRateForResource(fromRuntimeIt->second, fromPort->productionResourceId);
 }
+
+} // namespace
+
+production::ProductionGraphMetadata BuildProductionGraphMetadata(
+    const GraphDocument& graph,
+    const RecipeCatalog& recipes
+)
+{
+    production::ProductionGraphMetadata metadata;
+
+    const auto recipeRateForResource = [](const std::vector<ResourceAmount>& rates, ResourceId resourceId) {
+        for (const ResourceAmount& rate : rates)
+        {
+            if (rate.resourceId == resourceId)
+            {
+                return rate.ratePerMinute;
+            }
+        }
+
+        return 0.0f;
+    };
+
+    const auto portRoleForGraphPort = [](const GraphPort& port) {
+        if (port.direction == PortDirection::Input)
+        {
+            return production::ProductionPortRole::Input;
+        }
+
+        return port.isByproduct
+            ? production::ProductionPortRole::Byproduct
+            : production::ProductionPortRole::Output;
+    };
+
+    const auto declaredRateForPort = [&](const RecipeDef* recipe, const GraphPort& port) {
+        if (recipe == nullptr || port.productionResourceId == InvalidResourceId)
+        {
+            return 0.0f;
+        }
+
+        if (port.direction == PortDirection::Input)
+        {
+            return recipeRateForResource(recipe->inputs, port.productionResourceId);
+        }
+
+        if (port.isByproduct)
+        {
+            return recipeRateForResource(recipe->byproducts, port.productionResourceId);
+        }
+
+        return recipeRateForResource(recipe->outputs, port.productionResourceId);
+    };
+
+    for (const GraphNode& node : graph.nodes)
+    {
+        const RecipeDef* recipe = node.recipeId == InvalidRecipeId
+            ? nullptr
+            : recipes.Find(node.recipeId);
+
+        if (node.machineId != InvalidMachineId)
+        {
+            std::optional<production::ProductionRecipeId> recipeMetadataId;
+            if (node.recipeId != InvalidRecipeId)
+            {
+                recipeMetadataId = production::ProductionRecipeId{node.recipeId};
+            }
+
+            metadata.UpsertNode(production::ProductionNodeMetadata{
+                production::GraphNodeId{node.id},
+                production::ProductionMachineId{node.machineId},
+                recipeMetadataId,
+                true
+            });
+        }
+
+        // Port metadata is recorded for every graph port with production meaning,
+        // including temporary target/sink ports that are not production nodes. The
+        // evaluator still needs those endpoint resources to validate topology and
+        // account consumed rates during the migration away from embedded fields.
+        for (const GraphPort& port : node.inputs)
+        {
+            std::optional<production::ProductionResourceId> resourceMetadataId;
+            if (port.productionResourceId != InvalidResourceId)
+            {
+                resourceMetadataId = production::ProductionResourceId{port.productionResourceId};
+            }
+
+            metadata.UpsertPort(production::ProductionPortMetadata{
+                production::GraphNodeId{node.id},
+                production::GraphPortId{port.id},
+                resourceMetadataId,
+                portRoleForGraphPort(port),
+                declaredRateForPort(recipe, port)
+            });
+        }
+
+        for (const GraphPort& port : node.outputs)
+        {
+            std::optional<production::ProductionResourceId> resourceMetadataId;
+            if (port.productionResourceId != InvalidResourceId)
+            {
+                resourceMetadataId = production::ProductionResourceId{port.productionResourceId};
+            }
+
+            metadata.UpsertPort(production::ProductionPortMetadata{
+                production::GraphNodeId{node.id},
+                production::GraphPortId{port.id},
+                resourceMetadataId,
+                portRoleForGraphPort(port),
+                declaredRateForPort(recipe, port)
+            });
+        }
+    }
+
+    for (const GraphEdge& edge : graph.edges)
+    {
+        std::optional<production::ProductionResourceId> resourceMetadataId;
+        const GraphPort* fromPort = FindPort(graph, edge.fromNodeId, edge.fromPortId);
+        if (fromPort != nullptr && fromPort->productionResourceId != InvalidResourceId)
+        {
+            resourceMetadataId = production::ProductionResourceId{fromPort->productionResourceId};
+        }
+
+        metadata.UpsertLink(production::ProductionLinkMetadata{
+            production::GraphLinkId{edge.id},
+            production::GraphPortId{edge.fromPortId},
+            production::GraphPortId{edge.toPortId},
+            resourceMetadataId,
+            0.0f,
+            0.0f
+        });
+    }
+
+    return metadata;
+}
+
+ProductionEvaluation ProductionEvaluator::Evaluate(
+    const GraphDocument& graph,
+    const production::ProductionGraphMetadata& metadata,
+    const ScenarioDef& scenario
+) const
+{
+    GraphDocument hydratedGraph = graph;
+
+    hydratedGraph.edges.erase(
+        std::remove_if(hydratedGraph.edges.begin(), hydratedGraph.edges.end(), [&metadata](const GraphEdge& edge) {
+            return metadata.FindLink(production::GraphLinkId{edge.id}) == nullptr;
+        }),
+        hydratedGraph.edges.end()
+    );
+
+    for (GraphNode& node : hydratedGraph.nodes)
+    {
+        const production::ProductionNodeMetadata* nodeMetadata =
+            metadata.FindNode(production::GraphNodeId{node.id});
+
+        node.machineId = nodeMetadata == nullptr
+            ? InvalidMachineId
+            : nodeMetadata->machineId.value;
+        node.recipeId =
+            nodeMetadata != nullptr && nodeMetadata->recipeId.has_value()
+                ? nodeMetadata->recipeId->value
+                : InvalidRecipeId;
+
+        const auto hydratePort = [&metadata](GraphPort& port) {
+            const production::ProductionPortMetadata* portMetadata =
+                metadata.FindPort(production::GraphPortId{port.id});
+
+            port.productionResourceId =
+                portMetadata != nullptr && portMetadata->resourceId.has_value()
+                    ? portMetadata->resourceId->value
+                    : InvalidResourceId;
+            port.isByproduct =
+                portMetadata != nullptr &&
+                portMetadata->role == production::ProductionPortRole::Byproduct;
+        };
+
+        for (GraphPort& port : node.inputs)
+        {
+            hydratePort(port);
+        }
+
+        for (GraphPort& port : node.outputs)
+        {
+            hydratePort(port);
+        }
+    }
+
+    // NOTE: The internal evaluator still expects production fields on a graph
+    // snapshot. Hydrating a temporary graph from metadata keeps this migration
+    // behavior-preserving while moving call sites to the metadata-owned API.
+    return Evaluate(hydratedGraph, scenario);
+}
+
+namespace
+{
 
 void EvaluateRuntimeNode(
     const GraphDocument& graph,

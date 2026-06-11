@@ -1,14 +1,15 @@
 #pragma once
 
 // Declares the MVP production evaluator for recipe-driven graphs. This system
-// interprets graph nodes through production catalogs and scenario objectives; it
-// does not replace the legacy dashboard evaluator yet.
+// interprets graph topology through Crushline-owned production metadata,
+// production catalogs, and scenario objectives.
 
 #include "graph/GraphTypes.h"
 #include "graph/MachineCatalog.h"
 #include "graph/RecipeCatalog.h"
 #include "graph/ResourceCatalog.h"
 #include "graph/ScenarioCatalog.h"
+#include "production/ProductionGraphMetadata.h"
 
 #include <string>
 #include <vector>
@@ -74,6 +75,16 @@ struct ProductionEvaluation
     bool scenarioComplete = false;
 };
 
+// Builds a metadata snapshot from the current legacy graph production fields.
+// NOTE: This compatibility bridge exists while GraphDocument still mirrors
+// Crushline production meaning directly on nodes and ports. The evaluator-facing
+// API should consume the returned metadata rather than treating graph structure
+// as the long-term owner of machine, recipe, resource, and port-role meaning.
+[[nodiscard]] production::ProductionGraphMetadata BuildProductionGraphMetadata(
+    const GraphDocument& graph,
+    const RecipeCatalog& recipes
+);
+
 class ProductionEvaluator
 {
 public:
@@ -85,9 +96,20 @@ public:
         const RecipeCatalog& recipes
     );
 
+    // Evaluates one graph against one scenario using explicit Crushline
+    // production metadata for machine, recipe, resource, port role, and link
+    // meaning. GraphDocument remains the topology source: node IDs, port IDs,
+    // edge IDs, and edge endpoints still come from graph structure.
+    [[nodiscard]] ProductionEvaluation Evaluate(
+        const GraphDocument& graph,
+        const production::ProductionGraphMetadata& metadata,
+        const ScenarioDef& scenario
+    ) const;
+
     // Evaluates one graph against one scenario using the locked MVP rules:
     // acyclic topology, one edge per port, exact ResourceId matches, and
-    // input-limited utilization.
+    // input-limited utilization. NOTE: Temporary compatibility overload for
+    // legacy call sites that have not yet passed explicit production metadata.
     [[nodiscard]] ProductionEvaluation Evaluate(
         const GraphDocument& graph,
         const ScenarioDef& scenario
