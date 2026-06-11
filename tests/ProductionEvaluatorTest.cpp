@@ -1,11 +1,12 @@
 // Verifies the MVP production evaluator against the Tier 0 recipe-chain puzzle.
 // These tests cover scenario completion, byproduct handling, input starvation,
-// and MVP one-edge-per-port rules before the UI starts consuming production
-// evaluation results.
+// metadata-driven meaning, and MVP one-edge-per-port rules before the UI starts
+// consuming production evaluation results.
 
 #include "graph/GraphDocument.h"
 #include "graph/ProductionEvaluator.h"
 #include "graph/SampleGraph.h"
+#include "production/ProductionGraphMetadata.h"
 
 #include <cmath>
 #include <iostream>
@@ -180,15 +181,58 @@ void RemoveEdgeToResourceInput(
     }
 }
 
+void StripEmbeddedProductionMeaning(graph::GraphDocument& graph)
+{
+    // Regression guard for the metadata migration: evaluator tests can remove
+    // mirrored machine/recipe/resource fields from the graph and still pass when
+    // ProductionGraphMetadata is the source of Crushline meaning.
+    for (graph::GraphNode& node : graph.nodes)
+    {
+        node.machineId = graph::InvalidMachineId;
+        node.recipeId = graph::InvalidRecipeId;
+
+        for (graph::GraphPort& port : node.inputs)
+        {
+            port.productionResourceId = graph::InvalidResourceId;
+            port.isByproduct = false;
+        }
+
+        for (graph::GraphPort& port : node.outputs)
+        {
+            port.productionResourceId = graph::InvalidResourceId;
+            port.isByproduct = false;
+        }
+    }
+}
+
+graph::ProductionEvaluation EvaluateFromMetadata(
+    const EvaluationFixture& fixture,
+    const graph::GraphDocument& graph
+)
+{
+    const production::ProductionGraphMetadata metadata =
+        graph::BuildProductionGraphMetadata(graph, fixture.recipes);
+
+    graph::ProductionEvaluator evaluator(fixture.resources, fixture.machines, fixture.recipes);
+    return evaluator.Evaluate(graph, metadata, RequireTier0Scenario(fixture));
+}
+
 bool CheckTier0SampleCompletesScenario()
 {
     // The full recipe-driven sample graph should satisfy both Tier 0 objectives:
     // produce 50 Iron Ingots/min and route all Iron Slurry to the Waste Sink.
+    // The graph copy has embedded production IDs stripped so this test proves
+    // the evaluator consumes ProductionGraphMetadata for game meaning.
     EvaluationFixture fixture;
     graph::GraphDocument graph = graph::CreateSampleFactoryGraph();
-    graph::ProductionEvaluator evaluator(fixture.resources, fixture.machines, fixture.recipes);
+    const production::ProductionGraphMetadata metadata =
+        graph::BuildProductionGraphMetadata(graph, fixture.recipes);
+    graph::GraphDocument structureOnlyGraph = graph;
+    StripEmbeddedProductionMeaning(structureOnlyGraph);
 
-    const graph::ProductionEvaluation evaluation = evaluator.Evaluate(graph, RequireTier0Scenario(fixture));
+    graph::ProductionEvaluator evaluator(fixture.resources, fixture.machines, fixture.recipes);
+    const graph::ProductionEvaluation evaluation =
+        evaluator.Evaluate(structureOnlyGraph, metadata, RequireTier0Scenario(fixture));
 
     const graph::ResourceFlowSummary* ironIngot = FindResourceSummary(evaluation, graph::production_ids::IronIngot);
     const graph::ResourceFlowSummary* ironSlurry = FindResourceSummary(evaluation, graph::production_ids::IronSlurry);
@@ -241,8 +285,7 @@ bool CheckUnmanagedByproductFailsScenario()
 
     RemoveEdgeToResourceInput(graph, wasteSink->id, graph::production_ids::IronSlurry);
 
-    graph::ProductionEvaluator evaluator(fixture.resources, fixture.machines, fixture.recipes);
-    const graph::ProductionEvaluation evaluation = evaluator.Evaluate(graph, RequireTier0Scenario(fixture));
+    const graph::ProductionEvaluation evaluation = EvaluateFromMetadata(fixture, graph);
 
     const graph::ObjectiveStatus* ingotObjective = FindObjectiveStatus(
         evaluation,
@@ -281,8 +324,7 @@ bool CheckMissingInputLimitsDownstreamProduction()
 
     RemoveEdgeToResourceInput(graph, washer->id, graph::production_ids::Water);
 
-    graph::ProductionEvaluator evaluator(fixture.resources, fixture.machines, fixture.recipes);
-    const graph::ProductionEvaluation evaluation = evaluator.Evaluate(graph, RequireTier0Scenario(fixture));
+    const graph::ProductionEvaluation evaluation = EvaluateFromMetadata(fixture, graph);
     const graph::NodeProductionEval* washerEval = FindNodeEvaluation(evaluation, washer->id);
     const graph::ObjectiveStatus* ingotObjective = FindObjectiveStatus(
         evaluation,
@@ -338,8 +380,7 @@ bool CheckSplitOutputInvalidatesScenario()
         return false;
     }
 
-    graph::ProductionEvaluator evaluator(fixture.resources, fixture.machines, fixture.recipes);
-    const graph::ProductionEvaluation evaluation = evaluator.Evaluate(graph, RequireTier0Scenario(fixture));
+    const graph::ProductionEvaluation evaluation = EvaluateFromMetadata(fixture, graph);
 
     return
         Check(!evaluation.scenarioComplete, "implicit output split should fail scenario completion") &&
