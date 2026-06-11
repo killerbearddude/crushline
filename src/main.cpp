@@ -18,6 +18,7 @@ int RunProductionCatalogTest();
 int RunGraphRecipeNodeTest();
 int RunScenarioCatalogTest();
 int RunProductionEvaluatorTest();
+int RunProductionGraphMetadataTest();
 
 namespace
 {
@@ -44,6 +45,7 @@ void PrintUsage(const char* executable)
         << "  --graph-recipe-node-test     Verify recipe-driven graph node port generation.\n"
         << "  --scenario-catalog-test      Verify scenario objectives and Tier 0 goals.\n"
         << "  --production-evaluator-test  Verify MVP production target evaluation.\n"
+        << "  --production-graph-metadata-test  Verify production graph metadata storage.\n"
         << "  --frames <count>   Run for a fixed positive number of frames.\n"
         << "  --help, -h         Show this help text.\n";
 }
@@ -103,6 +105,11 @@ int main(int argc, char** argv)
         if (arg == "--production-evaluator-test")
         {
             return RunProductionEvaluatorTest();
+        }
+
+        if (arg == "--production-graph-metadata-test")
+        {
+            return RunProductionGraphMetadataTest();
         }
 
         if (arg == "--frames")
