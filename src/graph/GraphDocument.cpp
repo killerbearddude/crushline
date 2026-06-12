@@ -179,23 +179,6 @@ void AddPortsForAmounts(
         }
     }
 }
-
-bool PortsUseProductionResourceIds(const GraphPort& fromPort, const GraphPort& toPort)
-{
-    return
-        fromPort.productionResourceId != InvalidResourceId &&
-        toPort.productionResourceId != InvalidResourceId;
-}
-
-bool PortsHaveCompatibleResources(const GraphPort& fromPort, const GraphPort& toPort)
-{
-    if (PortsUseProductionResourceIds(fromPort, toPort))
-    {
-        return fromPort.productionResourceId == toPort.productionResourceId;
-    }
-
-    return fromPort.resource == toPort.resource;
-}
 } // namespace
 
 GraphNode* FindNode(GraphDocument& graph, int nodeId)
@@ -446,10 +429,9 @@ bool CanConnect(
         return false;
     }
 
-    if (!PortsHaveCompatibleResources(*fromPort, *toPort))
-    {
-        return false;
-    }
+    // Resource compatibility is intentionally not checked here. A mismatched
+    // production resource is a playable soft failure: the graph can represent
+    // the connection, and the production evaluator reports the consequence.
 
     const auto duplicate = std::find_if(graph.edges.begin(), graph.edges.end(), [&](const GraphEdge& edge) {
         return edge.fromNodeId == fromNodeId &&
