@@ -548,9 +548,9 @@ bool CheckAddRecipeNodeFromEmptyGraph()
 
 bool CheckGeneratedPortsPreserveConnectionValidation()
 {
-    // Verifies that generated ports participate in the existing connection rules:
-    // matching production resources connect, mismatches reject, and byproduct
-    // outputs can connect to compatible sink inputs.
+    // Verifies that generated ports remain structurally connectable after the
+    // graph layer stops treating resource mismatches as hard invalid operations.
+    // Production mismatches are playable soft failures reported by the evaluator.
     const CatalogSet catalogs;
     graph::GraphDocument graph;
 
@@ -624,7 +624,7 @@ bool CheckGeneratedPortsPreserveConnectionValidation()
     return
         Check(graph::CanConnect(graph, sourceId, sourceIron->id, crusherId, crusherIronInput->id), "iron source should connect to crusher input") &&
         Check(graph::CanConnect(graph, crusherId, crusherCrushedOutput->id, washerId, washerCrushedInput->id), "crusher output should connect to washer input") &&
-        Check(!graph::CanConnect(graph, crusherId, crusherCrushedOutput->id, washerId, washerWaterInput->id), "crushed ore should not connect to water input") &&
+        Check(graph::CanConnect(graph, crusherId, crusherCrushedOutput->id, washerId, washerWaterInput->id), "crushed ore should structurally connect to water input as a soft failure") &&
         Check(graph::CanConnect(graph, washerId, washerSlurryOutput->id, wasteSinkId, wasteSinkSlurryInput->id), "slurry byproduct should connect to waste sink") &&
         Check(graph::AddEdge(graph, washerId, washerSlurryOutput->id, wasteSinkId, wasteSinkSlurryInput->id) != 0, "slurry sink edge should be created");
 }

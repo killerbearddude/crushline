@@ -225,8 +225,11 @@ bool CheckDuplicateEdgeRejected()
         Check(graph.nextEdgeId == firstEdgeId + 1, "duplicate AddEdge should not consume an edge id");
 }
 
-bool CheckResourceMismatchRejected()
+bool CheckResourceMismatchAllowedAsSoftFailure()
 {
+    // Wrong-resource links are playable production mistakes, not hard graph
+    // structure errors. This prevents the editor from blocking experimentation;
+    // the production evaluator owns the zero-flow/diagnostic consequence.
     graph::GraphDocument graph;
     const TestPorts ports = BuildConnectionTestGraph(graph);
 
@@ -247,9 +250,13 @@ bool CheckResourceMismatchRejected()
     );
 
     return
-        Check(!ironOutputToCoalInput, "resource mismatch should be rejected") &&
-        Check(edgeId == 0, "resource mismatch AddEdge should return zero") &&
-        Check(graph.edges.empty(), "resource mismatch AddEdge should not mutate edges");
+        Check(ironOutputToCoalInput, "resource mismatch should be allowed as a soft failure") &&
+        Check(edgeId != 0, "resource mismatch AddEdge should create an editable edge") &&
+        Check(graph.edges.size() == 1, "resource mismatch AddEdge should append one edge") &&
+        Check(graph.edges.front().fromNodeId == ports.sourceNodeId, "mismatch edge source node mismatch") &&
+        Check(graph.edges.front().fromPortId == ports.sourceIronOutputId, "mismatch edge source port mismatch") &&
+        Check(graph.edges.front().toNodeId == ports.storageNodeId, "mismatch edge target node mismatch") &&
+        Check(graph.edges.front().toPortId == ports.storageCoalInputId, "mismatch edge target port mismatch");
 }
 }
 
@@ -260,7 +267,7 @@ int RunGraphConnectionTest()
         !CheckOutputToOutputRejected() ||
         !CheckSelfConnectionRejected() ||
         !CheckDuplicateEdgeRejected() ||
-        !CheckResourceMismatchRejected())
+        !CheckResourceMismatchAllowedAsSoftFailure())
     {
         return 1;
     }
